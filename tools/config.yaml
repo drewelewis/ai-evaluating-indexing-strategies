@@ -1,0 +1,43 @@
+# Example configuration for evaluation pipeline
+evaluation:
+  metrics:
+    - precision_at_k: [1, 5, 10]
+    - recall_at_k: [5, 10, 20]
+    - map
+    - mrr
+    - ndcg_at_k: [5, 10]
+
+# Engine configurations for comparison
+engines:
+  keyword:
+    type: elasticsearch
+    host: localhost
+    port: 9200
+    index_name: keyword_search_index
+    
+  vector:
+    type: vector
+    embedding_model: sentence-transformers/all-mpnet-base-v2
+    
+  hybrid:
+    type: hybrid
+    alpha: 0.6
+    fusion_method: rrf
+    
+  azure:
+    type: azure
+    index_name: azure_search_index
+    enable_vector_search: true
+    enable_semantic_search: true
+
+# Load testing configuration
+load_testing:
+  enabled: true
+  concurrent_users: 10
+  duration_minutes: 5
+
+# Output configuration
+output:
+  export_csv: true
+  generate_report: true
+  include_plots: true
