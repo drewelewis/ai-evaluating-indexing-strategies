@@ -47,10 +47,6 @@ A comprehensive guide to systematically define, build, test, and deploy optimal 
 - **[26. Knowledge Mining](./26-knowledge-mining.md)** - AI enrichment pipelines
 - **[27. Troubleshooting Guide](./27-troubleshooting-guide.md)** - Common issues and solutions
 
-### Part 8: Reference Materials
-- **[28. Azure Service Tiers](./28-azure-service-tiers.md)** - Pricing and capabilities
-- **[29. API Reference](./29-api-reference.md)** - Code examples and patterns
-- **[30. Best Practices Checklist](./30-best-practices-checklist.md)** - Production readiness
 
 ---
 
