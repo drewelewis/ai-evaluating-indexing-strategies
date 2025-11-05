@@ -1,24 +1,34 @@
-# AI Search Indexing Strategy Evaluation Knowledge Base
+# Azure AI Search Indexing Strategy Evaluation Knowledge Base
 
-This repository contains comprehensive documentation and frameworks for measuring search relevancy and accuracy when experimenting with different indexing strategies for AI-powered search systems.
+This repository contains comprehensive documentation and frameworks for measuring search relevancy and accuracy when experimenting with different indexing strategies using **Azure AI Search** and the broader Azure ecosystem.
+
+## 🔷 Azure-Focused Architecture
+
+This knowledge base is specifically designed around Azure services:
+- **Azure AI Search** - Primary search service with multiple indexing modes
+- **Azure OpenAI** - Embeddings and semantic capabilities  
+- **Azure Cosmos DB** - Storing evaluation results and metrics
+- **Azure Monitor & Application Insights** - Performance monitoring
+- **Azure Load Testing** - Scalability evaluation
+- **Power BI** - Analytics and reporting dashboards
 
 ## 📚 Knowledge Base Structure
 
 ### Core Documentation
 - **[Core Metrics](./docs/01-core-metrics.md)** - Essential metrics for measuring search relevance and accuracy
-- **[Evaluation Frameworks](./docs/02-evaluation-frameworks.md)** - Systematic approaches to testing search performance
-- **[Indexing Strategies](./docs/03-indexing-strategies.md)** - Comparison of keyword, vector, and hybrid indexing approaches
-- **[Advanced Techniques](./docs/04-advanced-techniques.md)** - Semantic re-ranking, query rewriting, and feedback loops
+- **[Evaluation Frameworks](./docs/02-evaluation-frameworks.md)** - Azure-native approaches to testing search performance
+- **[Azure AI Search Strategies](./docs/03-azure-search-strategies.md)** - Comprehensive guide to Azure AI Search indexing modes
+- **[Advanced Azure Techniques](./docs/04-azure-advanced-techniques.md)** - Semantic ranking, Azure OpenAI integration, and optimization
 
-### Practical Guides
-- **[Implementation Guide](./guides/implementation-guide.md)** - Step-by-step implementation instructions
+### Azure Implementation Guides
+- **[Azure Setup Guide](./guides/azure-setup-guide.md)** - Complete Azure environment configuration
 - **[Azure AI Search Evaluation](./guides/azure-ai-search-evaluation.md)** - Azure-specific evaluation pipelines
-- **[RAG Scenario Evaluation](./guides/rag-scenario-evaluation.md)** - Retrieval-Augmented Generation evaluation strategies
+- **[Azure Cost Optimization](./guides/azure-cost-optimization.md)** - Cost management strategies for search workloads
 
-### Tools & Templates
-- **[Evaluation Pipeline](./tools/evaluation-pipeline.py)** - Automated metric computation framework
-- **[Metrics Comparison](./tools/metrics-comparison.xlsx)** - Spreadsheet for comparing different approaches
-- **[Test Datasets](./datasets/)** - Sample datasets for testing different scenarios
+### Azure-Native Tools
+- **[Azure Evaluation Pipeline](./tools/azure_evaluation_pipeline.py)** - Automated evaluation using Azure services
+- **[Azure Configuration](./tools/config.yaml)** - Production-ready Azure configuration templates
+- **[Power BI Templates](./tools/powerbi-templates/)** - Pre-built dashboards for search analytics
 
 ### Quick Start
 1. Review the [Core Metrics](./docs/01-core-metrics.md) to understand key measurement approaches
@@ -26,18 +36,41 @@ This repository contains comprehensive documentation and frameworks for measurin
 3. Select appropriate [Indexing Strategies](./docs/03-indexing-strategies.md) to test
 4. Follow the [Implementation Guide](./guides/implementation-guide.md) to set up your evaluation pipeline
 
-## 🎯 Key Success Criteria
-- **nDCG > 0.8** for top 10 results in navigational queries
-- **Precision@5 > 0.7** for informational queries
-- **MRR > 0.6** for Q&A scenarios
-- **CTR improvement** of 15%+ in A/B testing
+## 🔧 Azure Services Used
 
-## 🔧 Technologies Covered
-- Azure AI Search
-- Vector databases (Pinecone, Weaviate, Chroma)
-- Hybrid search implementations
-- RAG (Retrieval-Augmented Generation) systems
-- Semantic re-ranking models
+| Service | Purpose | Configuration |
+|---------|---------|---------------|
+| **Azure AI Search** | Primary search engine | Standard tier, hybrid indexing |
+| **Azure OpenAI** | Embeddings & semantic analysis | text-embedding-ada-002 model |
+| **Azure Cosmos DB** | Results storage & analytics | NoSQL for flexible metrics storage |
+| **Azure Monitor** | Performance monitoring | Custom metrics & alerts |
+| **Azure Load Testing** | Scalability evaluation | Multi-region load simulation |
+| **Power BI** | Analytics dashboards | Real-time search performance insights |
+| **Azure Storage** | Datasets & model storage | Blob storage for large datasets |
+
+## 🎯 Azure AI Search Evaluation Modes
+
+This knowledge base covers evaluation of all Azure AI Search capabilities:
+
+### 1. **Keyword Search (BM25)**
+- Traditional full-text search with Azure's enhanced BM25
+- Custom scoring profiles and analyzers
+- **Target**: Precision@5 > 0.7, Latency < 50ms
+
+### 2. **Vector Search** 
+- Dense vector similarity using Azure OpenAI embeddings
+- HNSW algorithm optimization
+- **Target**: nDCG@10 > 0.8, Semantic accuracy > 85%
+
+### 3. **Hybrid Search**
+- Combines keyword and vector search with RRF
+- Automatic query routing and result fusion
+- **Target**: Best of both worlds, 20-30% improvement over single methods
+
+### 4. **Semantic Search**
+- Azure's built-in semantic ranking
+- Deep learning models for result re-ranking
+- **Target**: User satisfaction +40%, Click-through rate +25%
 
 ## 📈 Metrics Quick Reference
 | Metric | Use Case | Target Value |

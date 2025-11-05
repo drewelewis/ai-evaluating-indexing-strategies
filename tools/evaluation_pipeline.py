@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Automated Evaluation Pipeline for Search Indexing Strategies
+Azure Search Evaluation Pipeline
 
 This script provides a complete automation framework for evaluating and comparing
-different search indexing strategies with comprehensive metrics and reporting.
+Azure AI Search strategies with comprehensive metrics and Azure service integration.
 
 Usage:
     python evaluation_pipeline.py --config config.yaml --dataset dataset.json --output results/
@@ -17,33 +17,109 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import logging
+import asyncio
+import numpy as np
+
+# Azure imports
+from azure.search.documents import SearchClient
+from azure.search.documents.models import VectorizedQuery, QueryType, QueryCaptionType, QueryAnswerType
+from azure.core.credentials import AzureKeyCredential
+from openai import AzureOpenAI
+from azure.cosmos import CosmosClient
+from azure.monitor.query import LogsQueryClient
+from azure.identity import DefaultAzureCredential
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('evaluation.log'),
+        logging.FileHandler('azure_search_evaluation.log'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-class EvaluationPipeline:
-    """Complete evaluation pipeline for search indexing strategies."""
+class AzureSearchEvaluationPipeline:
+    """Complete evaluation pipeline for Azure AI Search strategies."""
     
     def __init__(self, config_path: str):
-        """Initialize pipeline with configuration."""
+        """Initialize pipeline with Azure configuration."""
         self.config = self._load_config(config_path)
+        self.azure_engines = {}
+        self.cosmos_client = None
         self.results = {}
         self.start_time = time.time()
         
-        logger.info(f"Initialized evaluation pipeline with config: {config_path}")
+        # Initialize Azure services
+        self._initialize_azure_services()
+        
+        logger.info(f"Initialized Azure Search evaluation pipeline with config: {config_path}")
     
     def _load_config(self, config_path: str) -> Dict[str, Any]:
-        """Load configuration from YAML file."""
+        """Load Azure configuration from YAML file."""
         with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
+            config = yaml.safe_load(f)
+        
+        # Validate Azure configuration
+        required_sections = ['azure']
+        for section in required_sections:
+            if section not in config:
+                raise ValueError(f"Missing required configuration section: {section}")
+        
+        return config
+    
+    def _initialize_azure_services(self):
+        """Initialize Azure AI Search and related services."""
+        azure_config = self.config['azure']
+        
+        # Initialize search engines
+        search_config = azure_config['search']
+        
+        # Full-text search engine
+        if search_config.get('fulltext_enabled', True):
+            self.azure_engines['fulltext'] = AzureFullTextSearch(
+                endpoint=search_config['endpoint'],
+                index_name=search_config['indexes']['fulltext'],
+                api_key=search_config['api_key']
+            )
+        
+        # Vector search engine  
+        if search_config.get('vector_enabled', True):
+            self.azure_engines['vector'] = AzureVectorSearch(
+                search_endpoint=search_config['endpoint'],
+                search_key=search_config['api_key'],
+                openai_endpoint=azure_config['openai']['endpoint'],
+                openai_key=azure_config['openai']['api_key'],
+                index_name=search_config['indexes']['vector']
+            )
+        
+        # Hybrid search engine
+        if search_config.get('hybrid_enabled', True):
+            self.azure_engines['hybrid'] = AzureHybridSearch(
+                search_endpoint=search_config['endpoint'],
+                search_key=search_config['api_key'],
+                openai_endpoint=azure_config['openai']['endpoint'],
+                openai_key=azure_config['openai']['api_key'],
+                index_name=search_config['indexes']['hybrid']
+            )
+        
+        # Semantic search engine
+        if search_config.get('semantic_enabled', True):
+            self.azure_engines['semantic'] = AzureSemanticSearch(
+                endpoint=search_config['endpoint'],
+                index_name=search_config['indexes']['semantic'],
+                api_key=search_config['api_key']
+            )
+        
+        # Initialize Cosmos DB for results storage
+        if 'cosmos_db' in azure_config:
+            self.cosmos_client = CosmosClient(
+                azure_config['cosmos_db']['endpoint'],
+                azure_config['cosmos_db']['key']
+            )
+        
+        logger.info(f"Initialized {len(self.azure_engines)} Azure search engines")
     
     def load_dataset(self, dataset_path: str) -> List[Dict[str, Any]]:
         """Load evaluation dataset."""

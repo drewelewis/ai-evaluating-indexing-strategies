@@ -1,4 +1,4 @@
-# Example configuration for evaluation pipeline
+# Azure-focused configuration for evaluation pipeline
 evaluation:
   metrics:
     - precision_at_k: [1, 5, 10]
@@ -7,37 +7,103 @@ evaluation:
     - mrr
     - ndcg_at_k: [5, 10]
 
-# Engine configurations for comparison
-engines:
-  keyword:
-    type: elasticsearch
-    host: localhost
-    port: 9200
-    index_name: keyword_search_index
-    
-  vector:
-    type: vector
-    embedding_model: sentence-transformers/all-mpnet-base-v2
-    
-  hybrid:
-    type: hybrid
-    alpha: 0.6
-    fusion_method: rrf
-    
-  azure:
-    type: azure
-    index_name: azure_search_index
-    enable_vector_search: true
-    enable_semantic_search: true
+# Azure service configurations
+azure:
+  subscription_id: "${AZURE_SUBSCRIPTION_ID}"
+  resource_group: "rg-search-evaluation"
+  location: "East US"
+  
+  # Azure AI Search service
+  search_service:
+    name: "srch-evaluation-${ENVIRONMENT}"
+    sku: "Standard"
+    replica_count: 1
+    partition_count: 1
+  
+  # Azure OpenAI for embeddings
+  openai_service:
+    name: "openai-evaluation-${ENVIRONMENT}"
+    sku: "S0"
+    deployment_name: "text-embedding-ada-002"
+    api_version: "2024-02-01"
+  
+  # Azure Cosmos DB for storing evaluation results
+  cosmos_db:
+    account_name: "cosmos-evaluation-${ENVIRONMENT}"
+    database_name: "search_evaluation"
+    container_name: "results"
 
-# Load testing configuration
+# Engine configurations for comparison (all Azure-based)
+engines:
+  azure_keyword:
+    type: azure_search
+    search_mode: "keyword"
+    index_name: "keyword-search-index"
+    scoring_profile: "keyword-boost"
+    
+  azure_vector:
+    type: azure_search
+    search_mode: "vector"
+    index_name: "vector-search-index"
+    vector_config:
+      dimensions: 1536
+      algorithm: "hnsw"
+      
+  azure_hybrid:
+    type: azure_search
+    search_mode: "hybrid"
+    index_name: "hybrid-search-index"
+    hybrid_config:
+      max_text_recall_size: 1000
+      count_and_facet_mode: "countAllResults"
+    
+  azure_semantic:
+    type: azure_search
+    search_mode: "semantic"
+    index_name: "semantic-search-index"
+    semantic_config: "default-semantic-config"
+
+# Azure Load Testing configuration
 load_testing:
   enabled: true
-  concurrent_users: 10
-  duration_minutes: 5
+  azure_load_testing:
+    test_plan_name: "search-performance-test"
+    concurrent_users: 50
+    duration_minutes: 10
+    ramp_up_time_seconds: 60
+    regions: ["East US", "West US2"]
+  
+# Azure monitoring and analytics
+monitoring:
+  application_insights:
+    name: "ai-search-evaluation-${ENVIRONMENT}"
+    retention_days: 90
+  
+  log_analytics:
+    workspace_name: "law-search-evaluation-${ENVIRONMENT}"
+    retention_days: 30
+  
+  alerts:
+    - name: "High Latency Alert"
+      metric: "search_latency_p95"
+      threshold: 1000
+      condition: "GreaterThan"
+    - name: "High Error Rate Alert"  
+      metric: "error_rate_percent"
+      threshold: 5
+      condition: "GreaterThan"
 
-# Output configuration
+# Azure storage for datasets and results
+storage:
+  storage_account: "stsearcheval${ENVIRONMENT}"
+  containers:
+    datasets: "datasets"
+    results: "evaluation-results"
+    models: "ml-models"
+
+# Output configuration  
 output:
-  export_csv: true
-  generate_report: true
-  include_plots: true
+  export_to_cosmos: true
+  export_to_blob: true
+  generate_power_bi_dataset: true
+  application_insights_export: true

@@ -1,417 +1,630 @@
-# Indexing Strategies Comparison
+# Azure AI Search Indexing Strategies
 
-This document provides a comprehensive comparison of different indexing approaches, their strengths, limitations, and optimal use cases.
+This document provides a comprehensive comparison of Azure AI Search indexing strategies, their performance characteristics, and optimal use cases for Azure-native implementations.
 
-## 🔍 Overview of Indexing Strategies
+## 🔍 Azure AI Search Overview
 
-### Strategy Comparison Matrix
+Azure AI Search (formerly Azure Cognitive Search) supports multiple search paradigms that can be evaluated and optimized:
 
-| Strategy | Latency | Recall | Precision | Semantic Understanding | Setup Complexity | Cost |
-|----------|---------|--------|-----------|----------------------|------------------|------|
-| **Keyword (BM25)** | ⚡⚡⚡ | ⭐⭐ | ⭐⭐⭐ | ⭐ | ⚡ | 💰 |
-| **Vector (Dense)** | ⚡⚡ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⚡⚡ | 💰💰 |
-| **Hybrid** | ⚡⚡ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⚡⚡⚡ | 💰💰💰 |
-| **Sparse Vector** | ⚡⚡⚡ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⚡⚡ | 💰💰 |
+1. **Full-text search** with BM25 scoring
+2. **Vector search** with Azure OpenAI embeddings  
+3. **Hybrid search** combining text and vectors
+4. **Semantic search** with AI-powered re-ranking
+
+### Azure Search Strategy Comparison Matrix
+
+| Strategy | Latency | Recall | Precision | Semantic Understanding | Azure Setup | Monthly Cost (S1) |
+|----------|---------|--------|-----------|----------------------|-------------|-------------------|
+| **Full-text (BM25)** | ⚡⚡⚡ | ⭐⭐ | ⭐⭐⭐ | ⭐ | ⚡ | $300 |
+| **Vector Search** | ⚡⚡ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐ | ⚡⚡ | $800-1500 |
+| **Hybrid Search** | ⚡⚡ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⚡⚡⚡ | $1000-2000 |
+| **Semantic Search** | ⚡ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⚡⚡ | $1500-3000 |
 
 *Legend: ⚡ = Fast/Simple/Cheap, ⭐ = Good performance*
+*Cost includes Azure AI Search + Azure OpenAI + semantic search fees*
 
-## 1. Keyword-Based Indexing (BM25/TF-IDF)
+## 1. Azure AI Search Full-text (BM25) Strategy
 
-### How It Works
+### How Azure AI Search BM25 Works
 ```python
-# BM25 Scoring Formula
-def bm25_score(query_terms, document, corpus_stats):
-    score = 0
-    for term in query_terms:
-        tf = document.term_frequency(term)
-        idf = math.log((len(corpus_stats.docs) - corpus_stats.docs_with_term(term) + 0.5) / 
-                      (corpus_stats.docs_with_term(term) + 0.5))
-        
-        score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * document.length / corpus_stats.avg_doc_length))
-    
-    return score
-```
-
-### Strengths
-- ✅ **Fast retrieval**: Sub-millisecond query processing
-- ✅ **Exact match**: Perfect for specific terms, codes, IDs
-- ✅ **Explainable**: Clear understanding of why documents match
-- ✅ **Low cost**: Minimal computational requirements
-- ✅ **Mature technology**: Well-understood, battle-tested
-
-### Limitations
-- ❌ **No semantic understanding**: "car" ≠ "automobile" 
-- ❌ **Vocabulary mismatch**: Query and document must share terms
-- ❌ **Poor synonym handling**: Requires manual synonym lists
-- ❌ **Limited context**: Ignores word order and relationships
-
-### Optimization Strategies
-```python
-bm25_config = {
-    "k1": 1.5,        # Term frequency saturation (1.2-2.0)
-    "b": 0.75,        # Document length normalization (0.5-0.8)
-    "custom_analyzers": {
-        "product_analyzer": {
-            "tokenizer": "standard",
-            "filters": ["lowercase", "stop", "synonym", "stemmer"]
+# Azure AI Search BM25 Configuration
+azure_bm25_index = {
+    "name": "fulltext-search-index",
+    "fields": [
+        {
+            "name": "id",
+            "type": "Edm.String",
+            "key": True,
+            "searchable": False
+        },
+        {
+            "name": "content",
+            "type": "Edm.String", 
+            "searchable": True,
+            "analyzer": "en.microsoft"
+        },
+        {
+            "name": "title",
+            "type": "Edm.String",
+            "searchable": True,
+            "analyzer": "en.microsoft"
         }
-    },
-    "field_boosts": {
-        "title": 2.0,
-        "description": 1.0,
-        "tags": 1.5
-    }
+    ],
+    "scoringProfiles": [
+        {
+            "name": "boost-title",
+            "text": {
+                "weights": {
+                    "title": 3.0,
+                    "content": 1.0
+                }
+            }
+        }
+    ]
 }
 ```
 
-### Best Use Cases
-- **Product search** with specific model numbers
-- **Legal document** retrieval with exact citations
-- **Technical documentation** with precise terminology
-- **Code search** with function/variable names
-
-### Performance Expectations
-| Metric | Typical Range | Optimization Target |
-|--------|---------------|-------------------|
-| Latency | 1-10ms | < 5ms |
-| Precision@5 | 0.6-0.8 | > 0.75 |
-| Recall | 0.4-0.7 | > 0.6 |
-| Storage | 10-20% of corpus | < 15% |
-
-## 2. Vector-Based Indexing (Dense Embeddings)
-
-### How It Works
+### Azure Search Client Implementation
 ```python
-class VectorSearchEngine:
-    def __init__(self, embedding_model, vector_db):
-        self.encoder = embedding_model  # e.g., sentence-transformers
-        self.vector_db = vector_db      # e.g., Pinecone, Weaviate, FAISS
-    
-    def index_documents(self, documents):
-        embeddings = self.encoder.encode(documents)
-        self.vector_db.upsert(embeddings, metadata=documents)
+from azure.search.documents import SearchClient
+from azure.core.credentials import AzureKeyCredential
+
+class AzureBM25Search:
+    def __init__(self, endpoint, index_name, api_key):
+        self.client = SearchClient(
+            endpoint=endpoint,
+            index_name=index_name,
+            credential=AzureKeyCredential(api_key)
+        )
     
     def search(self, query, top_k=10):
-        query_vector = self.encoder.encode([query])
-        results = self.vector_db.query(query_vector, top_k=top_k)
-        return results
-```
-
-### Vector Database Options
-
-#### FAISS (Facebook AI Similarity Search)
-```python
-faiss_config = {
-    "index_type": "IVF_HNSW",      # Inverted file + HNSW
-    "nlist": 1024,                # Number of clusters
-    "m": 16,                      # HNSW connections per node
-    "ef_construction": 200,       # Build-time search width
-    "ef_search": 100             # Query-time search width
-}
-# Pros: Fast, free, local deployment
-# Cons: No built-in persistence, limited scalability
-```
-
-#### Pinecone
-```python
-pinecone_config = {
-    "dimension": 768,
-    "metric": "cosine",
-    "pod_type": "p1.x1",
-    "replicas": 2,
-    "metadata_config": {
-        "indexed": ["category", "price_range"]
-    }
-}
-# Pros: Managed service, easy scaling, metadata filtering
-# Cons: Cost, vendor lock-in
-```
-
-#### Azure Cognitive Search
-```python
-azure_vector_config = {
-    "dimensions": 1536,
-    "vectorSearchProfile": "my-vector-profile",
-    "algorithm": "hnsw",
-    "hnswParameters": {
-        "metric": "cosine",
-        "m": 4,
-        "efConstruction": 400,
-        "efSearch": 500
-    }
-}
-# Pros: Integrated with Azure ecosystem, hybrid search
-# Cons: Azure-specific, learning curve
-```
-
-### Embedding Model Selection
-
-| Model | Dimensions | Speed | Quality | Use Case |
-|-------|------------|-------|---------|----------|
-| **all-MiniLM-L6-v2** | 384 | ⚡⚡⚡ | ⭐⭐ | General purpose, fast |
-| **all-mpnet-base-v2** | 768 | ⚡⚡ | ⭐⭐⭐ | Better quality, slower |
-| **OpenAI text-embedding-3-large** | 3072 | ⚡ | ⭐⭐⭐⭐ | Highest quality, API cost |
-| **E5-large-v2** | 1024 | ⚡⚡ | ⭐⭐⭐ | Good balance |
-
-### Optimization Strategies
-1. **Chunking Strategy**
-   ```python
-   def smart_chunking(document, chunk_size=512, overlap=50):
-       # Semantic chunking at sentence boundaries
-       sentences = nltk.sent_tokenize(document)
-       chunks = []
-       current_chunk = ""
-       
-       for sentence in sentences:
-           if len(current_chunk) + len(sentence) > chunk_size:
-               chunks.append(current_chunk)
-               current_chunk = sentence
-           else:
-               current_chunk += " " + sentence
-       
-       return chunks
-   ```
-
-2. **Index Tuning**
-   ```python
-   hnsw_params = {
-       "M": 16,              # Higher M = better recall, more memory
-       "efConstruction": 200, # Higher ef = better quality, slower build
-       "efSearch": 100       # Higher ef = better recall, slower search
-   }
-   ```
-
-### Best Use Cases
-- **Semantic search**: "Find documents about machine learning concepts"
-- **Multilingual search**: Cross-language information retrieval
-- **Question answering**: Finding passages that answer questions
-- **Recommendation systems**: Content-based recommendations
-
-### Performance Expectations
-| Metric | Typical Range | Optimization Target |
-|--------|---------------|-------------------|
-| Latency | 10-100ms | < 50ms |
-| Recall | 0.7-0.9 | > 0.85 |
-| nDCG@10 | 0.6-0.8 | > 0.75 |
-| Storage | 4-8x text size | < 6x |
-
-## 3. Hybrid Indexing (Keyword + Vector)
-
-### Architecture Patterns
-
-#### 1. Parallel Retrieval + Fusion
-```python
-class HybridSearchEngine:
-    def __init__(self, keyword_engine, vector_engine):
-        self.keyword_engine = keyword_engine
-        self.vector_engine = vector_engine
-    
-    def search(self, query, alpha=0.5):
-        # Parallel retrieval
-        keyword_results = self.keyword_engine.search(query)
-        vector_results = self.vector_engine.search(query)
-        
-        # Score fusion
-        fused_results = self.reciprocal_rank_fusion(
-            keyword_results, vector_results, alpha
+        """Perform BM25 search with Azure AI Search."""
+        results = self.client.search(
+            search_text=query,
+            top=top_k,
+            scoring_profile="boost-title",
+            query_type="simple"
         )
-        return fused_results
+        
+        return [
+            {
+                "id": result["id"],
+                "title": result.get("title", ""),
+                "content": result["content"],
+                "score": result["@search.score"]
+            }
+            for result in results
+        ]
     
-    def reciprocal_rank_fusion(self, list1, list2, alpha=0.5):
-        # RRF: 1/(rank + k) where k=60 is common
-        k = 60
-        scores = {}
+    def search_with_filters(self, query, filters, top_k=10):
+        """BM25 search with additional filters."""
+        filter_expression = self._build_filter_expression(filters)
         
-        for rank, doc in enumerate(list1):
-            scores[doc.id] = alpha / (rank + k)
+        results = self.client.search(
+            search_text=query,
+            filter=filter_expression,
+            top=top_k,
+            scoring_profile="boost-title"
+        )
         
-        for rank, doc in enumerate(list2):
-            scores[doc.id] = scores.get(doc.id, 0) + (1-alpha) / (rank + k)
+        return list(results)
+    
+    def _build_filter_expression(self, filters):
+        """Build OData filter expression for Azure AI Search."""
+        expressions = []
+        for field, value in filters.items():
+            if isinstance(value, list):
+                # OR condition for multiple values
+                or_expressions = [f"{field} eq '{v}'" for v in value]
+                expressions.append(f"({' or '.join(or_expressions)})")
+            else:
+                expressions.append(f"{field} eq '{value}'")
         
-        return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        return " and ".join(expressions)
 ```
 
-#### 2. Query Classification + Routing
+### Performance Characteristics
+- **Latency**: 10-30ms for most queries
+- **Throughput**: 1000+ QPS on Standard S1
+- **Precision@5**: 0.65-0.75 for exact matches
+- **Cost**: Most economical Azure search option
+- **Best for**: Product catalogs, document search, exact term matching
+
+### Azure BM25 Optimization
 ```python
-class QueryRouter:
-    def __init__(self, classifier_model):
-        self.classifier = classifier_model
+class AzureBM25Optimizer:
+    def __init__(self, search_client):
+        self.search_client = search_client
+    
+    def optimize_scoring_profile(self, query_click_data):
+        """Optimize scoring profile based on click-through data."""
         
-    def route_query(self, query):
-        intent = self.classifier.predict(query)
+        # Analyze field importance from user clicks
+        field_weights = self._analyze_field_performance(query_click_data)
         
-        routing_rules = {
-            "exact_match": {"engine": "keyword", "boost": 1.0},
-            "semantic": {"engine": "vector", "boost": 1.0},
-            "complex": {"engine": "hybrid", "alpha": 0.6}
+        optimized_profile = {
+            "name": "optimized-scoring",
+            "text": {
+                "weights": {
+                    "title": field_weights.get("title", 2.0),
+                    "content": field_weights.get("content", 1.0),
+                    "tags": field_weights.get("tags", 1.5)
+                }
+            },
+            "functions": [
+                {
+                    "type": "freshness",
+                    "fieldName": "lastModified",
+                    "boost": 1.5,
+                    "interpolation": "linear"
+                }
+            ]
         }
         
-        return routing_rules.get(intent, routing_rules["hybrid"])
+        return optimized_profile
 ```
 
-#### 3. Multi-Stage Retrieval
+## 2. Azure Vector Search Strategy
+
+### Azure OpenAI Integration
 ```python
-def multi_stage_search(query, engines):
-    # Stage 1: Fast keyword retrieval (large candidate set)
-    candidates = engines["keyword"].search(query, top_k=1000)
-    
-    # Stage 2: Vector reranking (small precise set)
-    reranked = engines["vector"].rerank(query, candidates, top_k=50)
-    
-    # Stage 3: Cross-encoder final ranking
-    final_results = engines["cross_encoder"].rerank(query, reranked, top_k=10)
-    
-    return final_results
-```
+from openai import AzureOpenAI
 
-### Fusion Strategies
-
-#### Reciprocal Rank Fusion (RRF)
-```python
-def reciprocal_rank_fusion(rankings, k=60):
-    fused_scores = {}
-    for ranking in rankings:
-        for position, doc_id in enumerate(ranking):
-            if doc_id not in fused_scores:
-                fused_scores[doc_id] = 0
-            fused_scores[doc_id] += 1.0 / (position + k)
-    return sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
-```
-
-#### Weighted Score Fusion
-```python
-def weighted_score_fusion(keyword_results, vector_results, alpha=0.5):
-    # Normalize scores to [0,1]
-    keyword_scores = normalize_scores(keyword_results)
-    vector_scores = normalize_scores(vector_results)
-    
-    fused_scores = {}
-    all_docs = set(keyword_scores.keys()) | set(vector_scores.keys())
-    
-    for doc_id in all_docs:
-        kw_score = keyword_scores.get(doc_id, 0)
-        vec_score = vector_scores.get(doc_id, 0)
-        fused_scores[doc_id] = alpha * kw_score + (1 - alpha) * vec_score
-    
-    return sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
-```
-
-### Configuration Optimization
-```python
-hybrid_config = {
-    "fusion_method": "rrf",  # "rrf", "weighted", "learned"
-    "alpha": 0.6,           # Keyword weight (0.5-0.7 typical)
-    "retrieval_sizes": {
-        "keyword": 500,
-        "vector": 500,
-        "final": 50
-    },
-    "query_routing": {
-        "enable": True,
-        "exact_threshold": 0.8,
-        "semantic_threshold": 0.3
-    }
-}
-```
-
-### Best Use Cases
-- **E-commerce search**: Combine exact product matches with similar items
-- **Enterprise search**: Handle both specific lookups and exploratory queries
-- **Customer support**: Find exact procedures and related context
-- **Academic search**: Precise citations + conceptually related papers
-
-### Performance Expectations
-| Metric | Typical Range | Optimization Target |
-|--------|---------------|-------------------|
-| Latency | 50-200ms | < 100ms |
-| Precision@5 | 0.7-0.9 | > 0.8 |
-| Recall | 0.8-0.95 | > 0.9 |
-| nDCG@10 | 0.75-0.9 | > 0.85 |
-
-## 4. Sparse Vector Indexing (SPLADE, ColBERT)
-
-### SPLADE (Sparse Lexical and Expansion)
-```python
-class SPLADEEncoder:
-    def __init__(self, model_name="naver/splade-cocondenser-ensembledistil"):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForMaskedLM.from_pretrained(model_name)
-    
-    def encode(self, texts):
-        tokens = self.tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
+class AzureVectorSearch:
+    def __init__(self, search_endpoint, search_key, openai_endpoint, openai_key, index_name):
+        # Initialize Azure AI Search client
+        self.search_client = SearchClient(
+            endpoint=search_endpoint,
+            index_name=index_name,
+            credential=AzureKeyCredential(search_key)
+        )
         
-        with torch.no_grad():
-            outputs = self.model(**tokens)
+        # Initialize Azure OpenAI client
+        self.openai_client = AzureOpenAI(
+            azure_endpoint=openai_endpoint,
+            api_key=openai_key,
+            api_version="2024-02-01"
+        )
+        self.embedding_deployment = "text-embedding-ada-002"
+    
+    def create_vector_index(self):
+        """Create vector search index configuration."""
+        
+        vector_index_config = {
+            "name": "vector-search-index",
+            "fields": [
+                {
+                    "name": "id",
+                    "type": "Edm.String",
+                    "key": True,
+                    "searchable": False
+                },
+                {
+                    "name": "content",
+                    "type": "Edm.String",
+                    "searchable": True
+                },
+                {
+                    "name": "content_vector",
+                    "type": "Collection(Edm.Single)",
+                    "searchable": True,
+                    "vectorSearchDimensions": 1536,
+                    "vectorSearchProfileName": "vector-profile"
+                }
+            ],
+            "vectorSearch": {
+                "algorithms": [
+                    {
+                        "name": "hnsw-algorithm",
+                        "kind": "hnsw",
+                        "hnswParameters": {
+                            "metric": "cosine",
+                            "m": 4,
+                            "efConstruction": 400,
+                            "efSearch": 500
+                        }
+                    }
+                ],
+                "profiles": [
+                    {
+                        "name": "vector-profile",
+                        "algorithm": "hnsw-algorithm"
+                    }
+                ]
+            }
+        }
+        
+        return vector_index_config
+    
+    def embed_text(self, text):
+        """Generate embedding using Azure OpenAI."""
+        response = self.openai_client.embeddings.create(
+            input=text,
+            model=self.embedding_deployment
+        )
+        return response.data[0].embedding
+    
+    def vector_search(self, query, top_k=10):
+        """Perform vector search with Azure AI Search."""
+        
+        # Generate query embedding
+        query_vector = self.embed_text(query)
+        
+        # Create vector query
+        vector_query = VectorizedQuery(
+            vector=query_vector,
+            k_nearest_neighbors=top_k,
+            fields="content_vector"
+        )
+        
+        # Search with vector
+        results = self.search_client.search(
+            search_text=None,
+            vector_queries=[vector_query],
+            top=top_k
+        )
+        
+        return [
+            {
+                "id": result["id"],
+                "content": result["content"],
+                "score": result["@search.score"]
+            }
+            for result in results
+        ]
+```
+
+### Performance Characteristics
+- **Latency**: 30-80ms including embedding generation
+- **Semantic Understanding**: Excellent for conceptual queries
+- **Recall**: 0.75-0.85 for semantic queries
+- **Cost**: Higher due to Azure OpenAI embedding costs
+- **Best for**: Q&A systems, semantic search, multilingual content
+
+## 3. Azure Hybrid Search Strategy
+
+### Hybrid Search Implementation
+```python
+class AzureHybridSearch:
+    def __init__(self, search_client, openai_client):
+        self.search_client = search_client
+        self.openai_client = openai_client
+        self.embedding_deployment = "text-embedding-ada-002"
+    
+    def create_hybrid_index(self):
+        """Create hybrid search index supporting both text and vector."""
+        
+        hybrid_index_config = {
+            "name": "hybrid-search-index",
+            "fields": [
+                {
+                    "name": "id",
+                    "type": "Edm.String",
+                    "key": True
+                },
+                {
+                    "name": "content",
+                    "type": "Edm.String",
+                    "searchable": True,
+                    "analyzer": "en.microsoft"
+                },
+                {
+                    "name": "title",
+                    "type": "Edm.String",
+                    "searchable": True,
+                    "analyzer": "en.microsoft"
+                },
+                {
+                    "name": "content_vector",
+                    "type": "Collection(Edm.Single)",
+                    "searchable": True,
+                    "vectorSearchDimensions": 1536,
+                    "vectorSearchProfileName": "hybrid-vector-profile"
+                }
+            ],
+            "vectorSearch": {
+                "algorithms": [
+                    {
+                        "name": "hybrid-hnsw",
+                        "kind": "hnsw",
+                        "hnswParameters": {
+                            "metric": "cosine",
+                            "m": 8,
+                            "efConstruction": 400,
+                            "efSearch": 500
+                        }
+                    }
+                ],
+                "profiles": [
+                    {
+                        "name": "hybrid-vector-profile",
+                        "algorithm": "hybrid-hnsw"
+                    }
+                ]
+            }
+        }
+        
+        return hybrid_index_config
+    
+    def hybrid_search(self, query, top_k=10):
+        """Perform hybrid search combining text and vector."""
+        
+        # Generate query embedding
+        query_vector = self.embed_text(query)
+        
+        # Create vector query
+        vector_query = VectorizedQuery(
+            vector=query_vector,
+            k_nearest_neighbors=top_k * 2,  # Get more candidates for fusion
+            fields="content_vector"
+        )
+        
+        # Perform hybrid search (Azure AI Search handles RRF fusion automatically)
+        results = self.search_client.search(
+            search_text=query,
+            vector_queries=[vector_query],
+            top=top_k,
+            query_type=QueryType.SIMPLE
+        )
+        
+        return [
+            {
+                "id": result["id"],
+                "title": result.get("title", ""),
+                "content": result["content"],
+                "score": result["@search.score"],
+                "reranker_score": result.get("@search.reranker_score")
+            }
+            for result in results
+        ]
+    
+    def embed_text(self, text):
+        """Generate embedding using Azure OpenAI."""
+        response = self.openai_client.embeddings.create(
+            input=text,
+            model=self.embedding_deployment
+        )
+        return response.data[0].embedding
+```
+
+### Performance Characteristics
+- **Latency**: 40-100ms depending on configuration
+- **Best Overall Performance**: Combines benefits of both approaches
+- **Precision@5**: 0.75-0.90 across different query types
+- **Cost**: Moderate, requires both search and embedding services
+- **Best for**: General-purpose search, e-commerce, enterprise applications
+
+## 4. Azure Semantic Search Strategy
+
+### Semantic Search Configuration
+```python
+class AzureSemanticSearch:
+    def __init__(self, search_client):
+        self.search_client = search_client
+    
+    def create_semantic_index(self):
+        """Create index with semantic search configuration."""
+        
+        semantic_index_config = {
+            "name": "semantic-search-index",
+            "fields": [
+                {
+                    "name": "id",
+                    "type": "Edm.String",
+                    "key": True
+                },
+                {
+                    "name": "title",
+                    "type": "Edm.String",
+                    "searchable": True
+                },
+                {
+                    "name": "content",
+                    "type": "Edm.String",
+                    "searchable": True
+                }
+            ],
+            "semanticSearch": {
+                "configurations": [
+                    {
+                        "name": "semantic-config",
+                        "prioritizedFields": {
+                            "titleField": {
+                                "fieldName": "title"
+                            },
+                            "prioritizedContentFields": [
+                                {"fieldName": "content"}
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+        
+        return semantic_index_config
+    
+    def semantic_search(self, query, top_k=10):
+        """Perform semantic search with AI-powered ranking."""
+        
+        results = self.search_client.search(
+            search_text=query,
+            top=top_k,
+            query_type=QueryType.SEMANTIC,
+            semantic_configuration_name="semantic-config",
+            query_caption=QueryCaptionType.EXTRACTIVE,
+            query_answer=QueryAnswerType.EXTRACTIVE
+        )
+        
+        search_results = []
+        semantic_answers = []
+        
+        for result in results:
+            # Extract semantic captions and highlights
+            captions = []
+            if "@search.captions" in result:
+                captions = [
+                    {
+                        "text": caption.text,
+                        "highlights": caption.highlights
+                    }
+                    for caption in result["@search.captions"]
+                ]
             
-        # Get sparse representation
-        sparse_vectors = torch.log(1 + torch.relu(outputs.logits)) * tokens.attention_mask.unsqueeze(-1)
+            search_results.append({
+                "id": result["id"],
+                "title": result.get("title", ""),
+                "content": result["content"],
+                "score": result["@search.score"],
+                "reranker_score": result.get("@search.reranker_score"),
+                "captions": captions
+            })
         
-        return sparse_vectors
+        # Extract semantic answers if available
+        if hasattr(results, 'get_answers'):
+            answers = results.get_answers()
+            if answers:
+                semantic_answers = [
+                    {
+                        "text": answer.text,
+                        "highlights": answer.highlights,
+                        "score": answer.score
+                    }
+                    for answer in answers
+                ]
+        
+        return {
+            "results": search_results,
+            "answers": semantic_answers
+        }
 ```
 
-### ColBERT (Efficient Multi-Vector)
+### Performance Characteristics
+- **Latency**: 60-150ms due to deep learning inference
+- **Highest Quality**: Best relevance for natural language queries
+- **Precision@5**: 0.80-0.95 for complex queries
+- **Cost**: Most expensive due to AI processing
+- **Best for**: Knowledge bases, customer support, Q&A systems
+
+## 🎯 Azure Strategy Selection Framework
+
 ```python
-class ColBERTEngine:
-    def __init__(self, checkpoint_path):
-        self.searcher = Searcher(index=checkpoint_path)
+def select_azure_search_strategy(requirements):
+    """Select optimal Azure AI Search strategy based on requirements."""
     
-    def search(self, query, k=10):
-        results = self.searcher.search(query, k=k)
-        return [(doc_id, score) for doc_id, score in results]
+    score_card = {
+        "fulltext": 0,
+        "vector": 0,
+        "hybrid": 0,
+        "semantic": 0
+    }
+    
+    # Latency requirements
+    max_latency = requirements.get("max_latency_ms", 1000)
+    if max_latency < 50:
+        score_card["fulltext"] += 3
+        score_card["vector"] += 1
+    elif max_latency < 100:
+        score_card["fulltext"] += 2
+        score_card["vector"] += 2
+        score_card["hybrid"] += 1
+    
+    # Query type analysis
+    query_types = requirements.get("query_types", {})
+    
+    if query_types.get("exact_match", 0) > 0.5:
+        score_card["fulltext"] += 3
+        score_card["hybrid"] += 2
+    
+    if query_types.get("semantic", 0) > 0.5:
+        score_card["vector"] += 3
+        score_card["semantic"] += 3
+        score_card["hybrid"] += 2
+    
+    if query_types.get("natural_language", 0) > 0.5:
+        score_card["semantic"] += 3
+        score_card["vector"] += 2
+    
+    # Budget considerations
+    budget_tier = requirements.get("budget_tier", "medium")
+    if budget_tier == "low":
+        score_card["fulltext"] += 3
+        score_card["vector"] -= 1
+        score_card["semantic"] -= 2
+    elif budget_tier == "high":
+        score_card["semantic"] += 2
+        score_card["hybrid"] += 1
+    
+    # Quality requirements
+    min_precision = requirements.get("min_precision_at_5", 0.7)
+    if min_precision > 0.8:
+        score_card["semantic"] += 3
+        score_card["hybrid"] += 2
+        score_card["vector"] += 1
+    
+    # Return ranked recommendations
+    ranked = sorted(score_card.items(), key=lambda x: x[1], reverse=True)
+    
+    return {
+        "primary_recommendation": ranked[0][0],
+        "scores": dict(ranked),
+        "reasoning": _generate_azure_reasoning(requirements, ranked[0][0])
+    }
+
+def _generate_azure_reasoning(requirements, recommendation):
+    """Generate explanation for Azure strategy recommendation."""
+    
+    reasons = []
+    
+    if recommendation == "fulltext":
+        reasons.append("Azure AI Search full-text optimized for exact matches")
+        reasons.append("Most cost-effective Azure search solution")
+        reasons.append("Best for product catalogs and document search")
+    elif recommendation == "vector":
+        reasons.append("Azure OpenAI embeddings provide semantic understanding")
+        reasons.append("Excellent for Q&A and conceptual search")
+        reasons.append("Handles multilingual content effectively")
+    elif recommendation == "hybrid":
+        reasons.append("Azure RRF fusion combines text and vector benefits")
+        reasons.append("Balanced performance across all query types")
+        reasons.append("Enterprise-grade solution with good ROI")
+    elif recommendation == "semantic":
+        reasons.append("Azure semantic search provides highest quality results")
+        reasons.append("Built-in answer extraction and captions")
+        reasons.append("Best for knowledge management and support systems")
+    
+    return reasons
 ```
 
-### Advantages of Sparse Vectors
-- ✅ **Interpretable**: Can see which terms contribute to similarity
-- ✅ **Expansion**: Automatically expands queries with related terms
-- ✅ **Efficient**: Leverages existing inverted index infrastructure
-- ✅ **Quality**: Often better than dense vectors for many tasks
+## 🔧 Implementation Roadmap
 
-### Best Use Cases
-- **Academic search**: Term expansion for research queries
-- **Legal search**: Interpretable relevance for compliance
-- **Medical search**: Terminology expansion with safety requirements
+### Phase 1: Azure Foundation (Week 1)
+1. **Azure Services Setup**
+   - Create Azure AI Search service (Standard S1)
+   - Configure Azure OpenAI service
+   - Set up monitoring with Azure Monitor
 
-## 🎯 Strategy Selection Framework
+2. **Basic Full-text Search**
+   - Implement BM25 search with custom scoring
+   - Create evaluation baseline
+   - Establish cost baseline
 
-### Decision Tree
-```
-Query Type?
-├── Exact Match Needed
-│   ├── High Volume → Keyword (BM25)
-│   └── Semantic Fallback → Hybrid (Keyword Primary)
-├── Semantic Understanding Critical
-│   ├── Multilingual → Vector (Dense)
-│   ├── Interpretability Required → Sparse Vector
-│   └── Best Quality → Hybrid
-└── Mixed Requirements
-    ├── Budget Constrained → Keyword + Query Expansion
-    ├── Performance Critical → Hybrid (Optimized)
-    └── Maximum Quality → Multi-Stage Hybrid
-```
+### Phase 2: Vector Enhancement (Week 2)
+1. **Azure Vector Search**
+   - Configure vector indexing with HNSW
+   - Integrate Azure OpenAI embeddings
+   - Performance vs. cost optimization
 
-### Implementation Roadmap
+### Phase 3: Hybrid Integration (Week 3)
+1. **Azure Hybrid Search**
+   - Implement hybrid indexing with RRF
+   - Add intelligent query routing
+   - A/B testing framework
 
-#### Phase 1: Baseline (Week 1-2)
-1. Implement BM25 keyword search
-2. Establish evaluation metrics and golden dataset
-3. Measure baseline performance
-
-#### Phase 2: Vector Search (Week 3-4)
-1. Choose embedding model and vector database
-2. Implement dense vector search
-3. Compare with keyword baseline
-
-#### Phase 3: Hybrid Optimization (Week 5-8)
-1. Implement fusion strategies
-2. Optimize alpha parameters
-3. Add query routing logic
-4. Comprehensive evaluation
-
-#### Phase 4: Production (Week 9-12)
-1. A/B testing with live traffic
-2. Monitoring and alerting setup
-3. Performance optimization
-4. Feedback loop implementation
+### Phase 4: Semantic Enhancement (Week 4)
+1. **Azure Semantic Search**
+   - Enable semantic ranking and captions
+   - Implement answer extraction
+   - Production monitoring and optimization
 
 ---
-*Next: [Advanced Techniques](./04-advanced-techniques.md)*
+*Next: [Azure Advanced Techniques](./04-azure-advanced-techniques.md)*
