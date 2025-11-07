@@ -1978,18 +1978,18 @@ flowchart TD
     AD --> AB
     AE --> AB
     
-    style A fill:#e1f5ff,stroke:#333,stroke-width:2px
-    style D fill:#90EE90,stroke:#333,stroke-width:2px
-    style F fill:#FFD700,stroke:#333,stroke-width:2px
-    style I fill:#90EE90,stroke:#333,stroke-width:2px
-    style L fill:#90EE90,stroke:#333,stroke-width:2px
-    style N1 fill:#FFB6C1,stroke:#333,stroke-width:2px
-    style N2 fill:#FFB6C1,stroke:#333,stroke-width:2px
-    style N3 fill:#FFB6C1,stroke:#333,stroke-width:2px
-    style N4 fill:#FFB6C1,stroke:#333,stroke-width:2px
-    style R fill:#FFA500,stroke:#333,stroke-width:2px
-    style X fill:#FFA500,stroke:#333,stroke-width:2px
-    style AA fill:#98FB98,stroke:#333,stroke-width:2px
+    style A fill:#e1f5ff,stroke:#333,stroke-width:2px,color:#000
+    style D fill:#90EE90,stroke:#333,stroke-width:2px,color:#000
+    style F fill:#FFD700,stroke:#333,stroke-width:2px,color:#000
+    style I fill:#90EE90,stroke:#333,stroke-width:2px,color:#000
+    style L fill:#90EE90,stroke:#333,stroke-width:2px,color:#000
+    style N1 fill:#FFB6C1,stroke:#333,stroke-width:2px,color:#000
+    style N2 fill:#FFB6C1,stroke:#333,stroke-width:2px,color:#000
+    style N3 fill:#FFB6C1,stroke:#333,stroke-width:2px,color:#000
+    style N4 fill:#FFB6C1,stroke:#333,stroke-width:2px,color:#000
+    style R fill:#FFA500,stroke:#333,stroke-width:2px,color:#000
+    style X fill:#FFA500,stroke:#333,stroke-width:2px,color:#000
+    style AA fill:#98FB98,stroke:#333,stroke-width:2px,color:#000
 ```
 
 ---
