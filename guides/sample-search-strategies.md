@@ -1880,7 +1880,7 @@ logger.info("ai_response_evaluation", extra={
 ## 9. Decision Tree (Mermaid)
 
 ```mermaid
-graph TD
+flowchart TD
     A[Start: PDF Documents for AI Agent] --> B{Document Complexity?}
     
     B -->|Simple Text Only| C[Use PyMuPDF/pdfplumber]
@@ -1894,9 +1894,9 @@ graph TD
     F --> F1[Entity Extraction - Azure AI Language]
     F1 --> F2[Summary Generation - GPT-4]
     F2 --> F3[Question Generation]
-    F3 --> H
+    F3 --> H{Chunking Strategy?}
     
-    G --> H{Chunking Strategy?}
+    G --> H
     
     H -->|Structured Docs| I[Section-based + Semantic Chunking]
     H -->|Unstructured| J[Fixed-size with Overlap]
@@ -1904,70 +1904,70 @@ graph TD
     I --> I1[Preserve section boundaries]
     I1 --> I2[Keep tables intact]
     I2 --> I3[500-800 token chunks]
-    I3 --> K
+    I3 --> K{Index Strategy?}
     
     J --> J1[512 token chunks]
     J1 --> J2[10% overlap]
     J2 --> K
     
-    K{Index Strategy?} --> L[Hybrid Search Index]
+    K --> L[Hybrid Search Index]
     
     L --> L1[Text fields: BM25]
     L1 --> L2[Vector field: Embeddings]
     L2 --> L3[Semantic config: Reranking]
-    L3 --> M
+    L3 --> M{Search Mode?}
     
-    M{Search Mode?} --> N{Query Type?}
+    M --> N{Query Type?}
     
     N -->|Factual| N1[Hybrid + Filters]
     N -->|Procedural| N2[Semantic Search]
     N -->|Eligibility| N3[Hybrid + Table Search]
     N -->|Comparison| N4[Multi-doc Hybrid]
     
-    N1 --> O
+    N1 --> O[Execute Search]
     N2 --> O
     N3 --> O
     N4 --> O
     
-    O[Execute Search] --> P{Results Quality?}
+    O --> P{Results Quality?}
     
     P -->|Poor Precision| Q1[Adjust scoring profile]
     P -->|Poor Recall| Q2[Adjust chunk size]
-    P -->|Good| R
+    P -->|Good| R[Testing Phase]
     
     Q1 --> S[Re-evaluate]
     Q2 --> S
     
     S --> P
     
-    R[Testing Phase] --> T{Create Golden Dataset}
+    R --> T{Create Golden Dataset}
     
     T --> T1[50-100 test queries]
     T1 --> T2[Annotate ground truth]
-    T2 --> U
+    T2 --> U[Run Evaluations]
     
-    U[Run Evaluations] --> V{Metrics Meet Targets?}
+    U --> V{Metrics Meet Targets?}
     
     V -->|Precision@5 < 0.8| W1[Optimize chunking]
     V -->|NDCG@10 < 0.7| W2[Tune scoring profile]
     V -->|Latency > 2s| W3[Optimize index/cache]
-    V -->|All targets met| X
+    V -->|All targets met| X[A/B Testing]
     
     W1 --> U
     W2 --> U
     W3 --> U
     
-    X[A/B Testing] --> Y{Compare Variants}
+    X --> Y{Compare Variants}
     
     Y --> Y1[Chunking strategies]
     Y --> Y2[Search modes]
     Y --> Y3[Enrichment levels]
     
-    Y1 --> Z
+    Y1 --> Z[Select Winner]
     Y2 --> Z
     Y3 --> Z
     
-    Z[Select Winner] --> AA[Production Deployment]
+    Z --> AA[Production Deployment]
     
     AA --> AB[Monitor Performance]
     AB --> AC{Issues Detected?}
@@ -1978,18 +1978,18 @@ graph TD
     AD --> AB
     AE --> AB
     
-    style A fill:#e1f5ff
-    style D fill:#90EE90
-    style F fill:#FFD700
-    style I fill:#90EE90
-    style L fill:#90EE90
-    style N1 fill:#FFB6C1
-    style N2 fill:#FFB6C1
-    style N3 fill:#FFB6C1
-    style N4 fill:#FFB6C1
-    style R fill:#FFA500
-    style X fill:#FFA500
-    style AA fill:#98FB98
+    style A fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style D fill:#90EE90,stroke:#333,stroke-width:2px
+    style F fill:#FFD700,stroke:#333,stroke-width:2px
+    style I fill:#90EE90,stroke:#333,stroke-width:2px
+    style L fill:#90EE90,stroke:#333,stroke-width:2px
+    style N1 fill:#FFB6C1,stroke:#333,stroke-width:2px
+    style N2 fill:#FFB6C1,stroke:#333,stroke-width:2px
+    style N3 fill:#FFB6C1,stroke:#333,stroke-width:2px
+    style N4 fill:#FFB6C1,stroke:#333,stroke-width:2px
+    style R fill:#FFA500,stroke:#333,stroke-width:2px
+    style X fill:#FFA500,stroke:#333,stroke-width:2px
+    style AA fill:#98FB98,stroke:#333,stroke-width:2px
 ```
 
 ---
