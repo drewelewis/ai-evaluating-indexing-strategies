@@ -1,6 +1,6 @@
 # Query Optimization
 
-Complete guide to optimizing Azure AI Search query performance, reducing latency, and improving efficiency.
+Complete guide to optimizing Azure AI Search query performance, reducing latency, and improving efficiency. This document provides comprehensive coverage of query performance analysis, caching strategies, filter optimization, field selection, pagination techniques, and advanced optimization patterns for achieving sub-100ms query latency at scale.
 
 ## 📋 Table of Contents
 - [Overview](#overview)
@@ -12,10 +12,142 @@ Complete guide to optimizing Azure AI Search query performance, reducing latency
 - [Index Optimization](#index-optimization)
 - [Advanced Techniques](#advanced-techniques)
 - [Best Practices](#best-practices)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Overview
+
+Query optimization is the practice of reducing search latency, improving throughput, and minimizing resource consumption while maintaining or improving relevance. In production systems, query performance directly impacts user experience, conversion rates, and infrastructure costs. Research consistently shows that every 100ms of added latency reduces conversion by 1%, making query optimization critical for business success.
+
+### Why Query Optimization Matters
+
+**User Experience Impact:**
+- **0-100ms**: Instant, no perceived delay
+- **100-300ms**: Noticeable delay, acceptable
+- **300-1000ms**: Sluggish, user frustration begins
+- **>1000ms**: Abandon rate increases sharply
+
+**Business Impact:**
+- Google: 400ms slower → 0.74% fewer searches (2009 study)
+- Amazon: 100ms slower → 1% revenue loss
+- Shopzilla: 5s → 1.2s latency = 25% traffic increase, 7-12% revenue increase
+
+**Cost Impact:**
+- Query optimization can reduce required search units by 50-70%
+- Caching can eliminate 60-80% of redundant searches
+- Proper filtering reduces compute by 2-10× per query
+
+### Real-World Application Scenario
+
+**Company**: Contoso Real Estate (Property search platform)
+**Scale**: 2 million property listings, 500K users, 50 million queries/month
+**Challenge**: Query latency degrading as index grows, high infrastructure costs
+
+**Previous Architecture (Unoptimized):**
+```
+Index: 2M properties, all 40 fields marked searchable
+Query Pattern: 
+- Full-text search across all fields
+- No caching
+- Client-side filtering after retrieval
+- Fetching all fields (avg 15KB per document)
+- Offset-based pagination with high skip values
+
+Performance Metrics:
+- P50 latency: 280ms
+- P95 latency: 850ms
+- P99 latency: 1,400ms
+- Cache hit rate: 0% (no caching)
+- Queries per search unit: ~8 QPS
+- Infrastructure: 4 S3 search units @ $3,200/month
+- Bounce rate on slow queries: 35%
+```
+
+**Optimization Strategy Implemented:**
+
+**Phase 1: Low-Hanging Fruit (Week 1)**
+1. **Field Selection Optimization**
+   - Changed: Fetch only 5 essential fields vs all 40
+   - Code: Added `select="id,title,price,location,imageUrl"`
+   - Result: Response size 15KB → 2KB (7.5× reduction)
+   - Latency improvement: -45ms (P50: 280ms → 235ms)
+
+2. **Basic Query Caching**
+   - Implemented: In-memory cache with 5-minute TTL
+   - Cache targets: Top 1000 common queries (from logs)
+   - Hit rate achieved: 62%
+   - Latency for cached queries: 235ms → 8ms (29× faster)
+   - Overall P50 improvement: 235ms → 110ms (62% cached × 8ms + 38% uncached × 235ms)
+
+3. **Pre-Filtering vs Post-Filtering**
+   - Changed: Moved filters from application to query
+   - Before: Fetch 100 results → filter in app → return 10
+   - After: Filter in query → fetch 10 results
+   - Query change: Added `filter="city eq 'Seattle' and price le 500000"`
+   - Latency improvement: -35ms (P50: 110ms → 75ms)
+
+**Phase 2: Advanced Optimizations (Week 2-3)**
+
+4. **Index Schema Optimization**
+   - Reduced searchable fields: 40 → 12 (only user-facing text)
+   - Marked strategic fields filterable: city, state, price, bedrooms, bathrooms
+   - Index rebuild impact: 30% smaller index, faster searches
+   - Latency improvement: -15ms (P50: 75ms → 60ms)
+
+5. **Pagination Optimization**
+   - Changed: Offset pagination → continuation token
+   - Before: Page 10 requires skip=90 (slow)
+   - After: Continuation token (constant time)
+   - Deep pagination: 450ms → 85ms (5.3× faster for page 10+)
+
+6. **Embedding Cache for Vector Queries**
+   - Cached: 5,000 common query embeddings
+   - Embedding generation time: 25-40ms → 0ms (cached)
+   - Hit rate: 58% (common location/property type queries)
+   - Cost savings: 29M embedding calls/month eliminated = $3.77/month (small but adds up)
+   - Latency improvement: -20ms avg (P50: 60ms → 40ms for vector queries)
+
+**Final Performance After Full Optimization:**
+```
+Performance Metrics:
+- P50 latency: 40ms (85% improvement from 280ms)
+- P95 latency: 120ms (86% improvement from 850ms)
+- P99 latency: 280ms (80% improvement from 1,400ms)
+- Cache hit rate: 62% overall (query cache) + 58% (embedding cache)
+- Queries per search unit: ~22 QPS (2.75× improvement from 8 QPS)
+- Infrastructure: 2 S2 search units @ $1,000/month (69% cost reduction)
+- Bounce rate: 35% → 12% (66% reduction)
+```
+
+**Business Impact:**
+```
+Revenue Impact:
+- Conversion rate improvement: 1.8% → 2.4% (+33% from lower latency)
+- Monthly transactions: 15,000 → 20,000 (+5,000)
+- Avg commission per transaction: $3,200
+- Additional monthly revenue: 5,000 × $3,200 = $16M/year
+
+Cost Savings:
+- Infrastructure: $3,200 → $1,000 = $2,200/month saved = $26,400/year
+- Total annual benefit: $16M revenue + $26K savings ≈ $16M
+
+ROI:
+- Investment: 3 weeks developer time (~$15K)
+- Annual return: $16M
+- ROI: 1,067× return
+```
+
+**Key Takeaways from Contoso Case Study:**
+1. **Field selection** (7.5× data reduction) was the easiest, highest-impact optimization
+2. **Caching** eliminated 62% of query load with simple in-memory cache
+3. **Pre-filtering** (2-5× faster) required only query restructuring, no code changes
+4. **Cumulative effect**: Multiple 10-20% improvements compound to 85% total improvement
+5. **Business value**: Every 100ms matters (1.8% → 2.4% conversion = $16M/year)
+
+This document will guide you through implementing similar optimizations for your search application.
+
+---
 
 ### Query Optimization Goals
 
@@ -1106,23 +1238,1296 @@ print(f"Optimized phrase: {optimized}")
 
 ## Best Practices
 
-### ✅ Do's
-1. **Always use select parameter** to limit returned fields
-2. **Cache frequently used queries** with appropriate TTL
-3. **Apply filters before search** to reduce scope
-4. **Use continuation tokens** for deep pagination
-5. **Monitor P95/P99 latency** not just average
-6. **Add replicas** for high query volume
-7. **Profile queries** before and after optimization
+### 1. Field Selection and Data Transfer Optimization
 
-### ❌ Don'ts
-1. **Don't** fetch all fields if you only need a few
-2. **Don't** use high skip values for pagination (use continuation)
-3. **Don't** filter in application code (filter in query)
-4. **Don't** ignore cache hit rates (should be >60%)
-5. **Don't** over-fetch results (use appropriate top value)
-6. **Don't** search all fields (use search_fields parameter)
-7. **Don't** forget to invalidate cache when index updates
+**DO: Always use the `select` parameter to limit returned fields**
+
+```python
+# ✅ GOOD: Return only needed fields (2KB response)
+results = search_client.search(
+    search_text="laptop",
+    select="id,title,price,rating,imageUrl",
+    top=10
+)
+
+# ❌ BAD: Return all fields (15KB response, 7.5× larger)
+results = search_client.search(
+    search_text="laptop",
+    top=10
+)
+```
+
+**Impact**:
+- Response size: 15KB → 2KB (7.5× reduction)
+- Serialization time: -40ms per query
+- Network transfer: -13KB × 10 results = -130KB per query
+- At 1M queries/month: 130GB → 17GB (113GB saved)
+
+**Guidelines**:
+- **Search results page**: `id, title, price, thumbnail, rating` (minimal for display)
+- **Detail page**: Fetch full document by ID (single doc, not search query)
+- **Autocomplete**: `id, title` only
+- **Facets/filters**: Just the facet fields needed
+
+**DON'T: Retrieve all fields "just in case"**
+
+Every extra field increases latency and costs:
+- Small field (50 chars): +100 bytes
+- Large field (5000 chars): +5KB
+- Binary/encoded field: +10-50KB
+
+**Decision Matrix: Which fields to include?**
+
+| Field Purpose | Include in select? | Reasoning |
+|---------------|-------------------|-----------|
+| Display in results | ✅ Yes | Needed for UI |
+| Sort/filter only | ❌ No | Use $orderby/$filter, don't return |
+| Detail page only | ❌ No | Fetch separately by ID |
+| Search-only field | ❌ No | Used for matching, not display |
+| Facet field | ✅ Yes (if showing) | If displaying facet counts |
+
+---
+
+### 2. Caching Strategy and Implementation
+
+**DO: Implement multi-layer caching with appropriate TTLs**
+
+```python
+# ✅ GOOD: Multi-layer cache with different TTLs
+class OptimalSearchCache:
+    def __init__(self, search_client):
+        self.search_client = search_client
+        # L1: Hot queries (1 minute TTL, 1000 entries max)
+        self.l1_cache = {}  # In-memory, very fast
+        self.l1_ttl = 60
+        self.l1_max_size = 1000
+        
+        # L2: Warm queries (5 minute TTL, 10000 entries max)
+        self.l2_cache = {}  # In-memory or Redis
+        self.l2_ttl = 300
+        self.l2_max_size = 10000
+        
+        # L3: Cold queries (1 hour TTL, unlimited)
+        # Could be Redis, Memcached, or Azure Cache for Redis
+        
+    def search(self, **params):
+        cache_key = self._hash_params(params)
+        
+        # Check L1 (hot)
+        if cache_key in self.l1_cache and self._is_valid(self.l1_cache[cache_key], self.l1_ttl):
+            return self.l1_cache[cache_key]['results'], 'l1_hit'
+        
+        # Check L2 (warm)
+        if cache_key in self.l2_cache and self._is_valid(self.l2_cache[cache_key], self.l2_ttl):
+            # Promote to L1
+            self.l1_cache[cache_key] = self.l2_cache[cache_key]
+            self._evict_if_needed(self.l1_cache, self.l1_max_size)
+            return self.l2_cache[cache_key]['results'], 'l2_hit'
+        
+        # Cache miss - execute search
+        results = list(self.search_client.search(**params))
+        
+        # Store in both caches
+        entry = {'results': results, 'timestamp': time.time()}
+        self.l1_cache[cache_key] = entry
+        self.l2_cache[cache_key] = entry
+        
+        self._evict_if_needed(self.l1_cache, self.l1_max_size)
+        self._evict_if_needed(self.l2_cache, self.l2_max_size)
+        
+        return results, 'cache_miss'
+```
+
+**Impact**:
+- Hit rate target: >60% (62% in Contoso case study)
+- Latency for cached queries: 250ms → 5-10ms (25-50× faster)
+- Overall latency improvement: 40-60% (depends on hit rate)
+- Cost savings: 60% fewer searches = 40% of original infrastructure
+
+**DON'T: Cache without TTL or invalidation strategy**
+
+```python
+# ❌ BAD: Infinite cache, never invalidates
+class BadCache:
+    def __init__(self):
+        self.cache = {}  # Grows forever, serves stale data
+    
+    def search(self, query):
+        if query in self.cache:
+            return self.cache[query]  # Could be months old!
+        
+        results = execute_search(query)
+        self.cache[query] = results
+        return results
+```
+
+**Problems**:
+- Serves stale data after index updates
+- Memory grows unbounded (cache poisoning)
+- No cache eviction (oldest entries never removed)
+
+**Cache Invalidation Rules**:
+1. **Time-based**: Expire after TTL (common: 1-5 minutes)
+2. **Event-based**: Invalidate on index update
+3. **Size-based**: Evict LRU entries when cache full
+4. **Manual**: Admin can force cache clear
+
+---
+
+### 3. Filter Optimization and Pre-Filtering
+
+**DO: Apply filters in the query, not in application code**
+
+```python
+# ✅ GOOD: Filter at search time (2-5× faster)
+results = search_client.search(
+    search_text="laptop",
+    filter="price le 1000 and category eq 'Electronics' and inStock eq true",
+    top=10
+)
+# Azure Search filters BEFORE ranking, returns only 10 results
+
+# ❌ BAD: Filter in application (slow, wasteful)
+results = search_client.search(
+    search_text="laptop",
+    top=1000  # Fetch 1000 results
+)
+# Download 1000 results (15MB), filter in Python, keep 10
+filtered = [r for r in results if r['price'] <= 1000 and r['category'] == 'Electronics'][:10]
+```
+
+**Impact**:
+- Query time: 250ms → 85ms (2.9× faster)
+- Data transfer: 15MB → 150KB (100× reduction)
+- Compute: Server-side filtering (optimized) vs client-side (slow Python loops)
+
+**DON'T: Filter on non-filterable fields**
+
+```python
+# ❌ BAD: Field not marked filterable in schema
+results = search_client.search(
+    search_text="laptop",
+    filter="description eq 'High performance'"  # ERROR if not filterable!
+)
+```
+
+**Solution**: Mark fields filterable in index schema:
+```python
+{
+    "name": "price",
+    "type": "Edm.Double",
+    "filterable": True,  # ✅ Enable filtering
+    "sortable": True,
+    "facetable": True
+}
+```
+
+**Filter Performance Guidelines**:
+
+| Filter Type | Performance | When to Use |
+|-------------|-------------|-------------|
+| Equality (`eq`) | ⚡ Fastest | Exact matches: `category eq 'Laptop'` |
+| Range (`le`, `ge`) | ⚡ Fast | Numeric ranges: `price le 1000` |
+| Collection (`any`) | ⚡ Fast | Array fields: `tags/any(t: t eq 'gaming')` |
+| String functions | ⚠️ Moderate | Only when necessary: `startswith(title, 'Mac')` |
+| Geo distance | ⚠️ Moderate | Location-based: `geo.distance(...) le 10` |
+| Complex expressions | ⚠️ Slower | Nested logic: multiple ANDs/ORs |
+
+---
+
+### 4. Search Scope and Field Targeting
+
+**DO: Limit search to relevant fields using `search_fields`**
+
+```python
+# ✅ GOOD: Search only title and description (3× faster)
+results = search_client.search(
+    search_text="gaming laptop",
+    search_fields="title,description",
+    top=10
+)
+
+# ❌ BAD: Search all searchable fields (slow, noisy)
+results = search_client.search(
+    search_text="gaming laptop",  # Searches: title, description, reviews, tags, brand, category, ...
+    top=10
+)
+```
+
+**Impact**:
+- Fewer fields → smaller inverted index to scan
+- More precise matching (no false positives from irrelevant fields)
+- Faster query execution: 150ms → 50ms (3× improvement)
+
+**Field Selection Strategy**:
+- **Product search**: `title^3, description, brand` (boost title 3×)
+- **Document search**: `title^2, content`
+- **People search**: `name^3, title, department`
+- **Code search**: `filename^2, content`
+
+**DON'T: Search numeric/date fields**
+
+```python
+# ❌ BAD: Searching numeric fields (nonsensical)
+results = search_client.search(
+    search_text="999.99",  # Searching price as text?
+    top=10
+)
+
+# ✅ GOOD: Filter numeric fields instead
+results = search_client.search(
+    search_text="laptop",
+    filter="price eq 999.99",  # Exact numeric match
+    top=10
+)
+```
+
+---
+
+### 5. Pagination Efficiency
+
+**DO: Use continuation tokens for deep pagination**
+
+```python
+# ✅ GOOD: Continuation-based pagination (constant time)
+def paginate_with_continuation(search_client, query, page_size=10):
+    results = search_client.search(
+        search_text=query,
+        top=page_size
+    )
+    
+    for page in results.by_page():
+        yield list(page)
+        # Constant time per page, regardless of depth
+
+# ❌ BAD: Offset-based pagination (slow for deep pages)
+def paginate_with_offset(search_client, query, page_number, page_size=10):
+    skip = (page_number - 1) * page_size
+    results = search_client.search(
+        search_text=query,
+        skip=skip,  # Page 100: skip=990 (very slow!)
+        top=page_size
+    )
+    return list(results)
+```
+
+**Performance Comparison**:
+
+| Page Number | Offset Latency | Continuation Latency | Speedup |
+|-------------|----------------|---------------------|---------|
+| Page 1 | 50ms | 50ms | 1.0× |
+| Page 5 | 85ms | 52ms | 1.6× |
+| Page 10 | 150ms | 55ms | 2.7× |
+| Page 50 | 450ms | 58ms | 7.8× |
+| Page 100 | 850ms | 60ms | 14.2× |
+
+**DON'T: Use high `skip` values**
+
+```python
+# ❌ BAD: Skip 10,000 results (extremely slow)
+results = search_client.search(
+    search_text="laptop",
+    skip=10000,  # Azure Search must process and discard 10,000 results!
+    top=10
+)
+# Latency: 2,000-5,000ms (unusable)
+```
+
+**Azure Search Limit**: Maximum `skip` value is 100,000 (enforced)
+
+---
+
+### 6. Query Complexity Management
+
+**DO: Simplify overly complex queries**
+
+```python
+# ✅ GOOD: Focused, simple query (fast)
+results = search_client.search(
+    search_text="gaming laptop",
+    search_mode="all",  # Both terms must match
+    top=10
+)
+# Latency: 45ms
+
+# ❌ BAD: Overly complex query (slow, over-engineered)
+results = search_client.search(
+    search_text="gaming OR (laptop AND (performance OR powerful) AND NOT cheap) OR workstation",
+    search_mode="any",
+    query_type="full",  # Lucene syntax (slower to parse)
+    top=10
+)
+# Latency: 180ms (4× slower)
+```
+
+**Complexity Impact**:
+- Simple query (2-3 terms): 40-60ms
+- Medium query (5-7 terms, basic Boolean): 80-120ms
+- Complex query (10+ terms, nested Boolean): 150-300ms
+- Regex/wildcard query: 200-500ms (avoid in production)
+
+**DON'T: Use leading wildcards**
+
+```python
+# ❌ BAD: Leading wildcard (scans entire index)
+results = search_client.search(
+    search_text="*book",  # Matches: textbook, notebook, facebook, ...
+    top=10
+)
+# Latency: 800-2,000ms (100-1000× slower!)
+
+# ✅ GOOD: Trailing wildcard (uses index efficiently)
+results = search_client.search(
+    search_text="book*",  # Matches: book, books, booklet, ...
+    top=10
+)
+# Latency: 55ms
+```
+
+**Reason**: Leading wildcards require full index scan (no optimization possible)
+
+---
+
+### 7. Monitoring and Performance Tracking
+
+**DO: Track P95/P99 latency, not just average**
+
+```python
+# ✅ GOOD: Comprehensive latency tracking
+class LatencyTracker:
+    def __init__(self):
+        self.latencies = []
+    
+    def record(self, latency_ms):
+        self.latencies.append(latency_ms)
+    
+    def get_stats(self):
+        if not self.latencies:
+            return {}
+        
+        sorted_latencies = sorted(self.latencies)
+        n = len(sorted_latencies)
+        
+        return {
+            'count': n,
+            'mean': sum(sorted_latencies) / n,
+            'median': sorted_latencies[n // 2],
+            'p50': sorted_latencies[int(n * 0.50)],
+            'p75': sorted_latencies[int(n * 0.75)],
+            'p90': sorted_latencies[int(n * 0.90)],
+            'p95': sorted_latencies[int(n * 0.95)],  # ← Most important!
+            'p99': sorted_latencies[int(n * 0.99)],  # ← Second most important!
+            'max': sorted_latencies[-1]
+        }
+
+tracker = LatencyTracker()
+# ... record latencies ...
+stats = tracker.get_stats()
+print(f"P95: {stats['p95']:.0f}ms, P99: {stats['p99']:.0f}ms")
+```
+
+**Why P95/P99 matter more than average**:
+- **Average (mean)**: Hides outliers, 50% of users experience worse
+- **P95**: 95% of queries are faster (only 5% slower)
+- **P99**: 99% of queries are faster (only 1% slower)
+- **Production SLOs**: Typically set at P95 or P99, not mean
+
+**Example**:
+- 100 queries: 99 at 50ms, 1 at 5,000ms
+- Mean: 100ms (misleading!)
+- P95/P99: 50ms (accurate representation)
+
+**DON'T: Rely solely on average latency**
+
+Average latency can be excellent while user experience is poor:
+```
+Scenario: E-commerce search
+- Average latency: 85ms (excellent!)
+- P95 latency: 850ms (terrible!)
+- Impact: 5% of users experience slow searches (high bounce rate)
+```
+
+---
+
+### 8. Resource Scaling and Capacity Planning
+
+**DO: Scale with replicas for read performance**
+
+```python
+# Capacity planning formula
+def calculate_replicas_needed(target_qps, avg_query_latency_ms, target_p95_ms=200):
+    """
+    Calculate replicas needed for target QPS and latency.
+    
+    Args:
+        target_qps: Desired queries per second
+        avg_query_latency_ms: Average query latency
+        target_p95_ms: Target P95 latency (default 200ms)
+    
+    Returns:
+        Recommended replica count
+    """
+    # Queries per second per replica (rough estimate)
+    # Assumes query can complete in avg_query_latency_ms
+    qps_per_replica = 1000 / avg_query_latency_ms
+    
+    # Add 30% buffer for burst traffic and P95 target
+    buffer_factor = 1.3
+    
+    replicas_needed = (target_qps / qps_per_replica) * buffer_factor
+    
+    # Round up, minimum 2 for HA
+    replicas = max(2, int(replicas_needed + 0.5))
+    
+    return {
+        'recommended_replicas': replicas,
+        'estimated_qps': replicas * qps_per_replica / buffer_factor,
+        'cost_per_replica': '$250/month (S1), $1000/month (S2), $2000/month (S3)',
+        'note': 'Add +1 replica for zero-downtime updates'
+    }
+
+# Example usage
+plan = calculate_replicas_needed(target_qps=500, avg_query_latency_ms=60)
+print(f"Need {plan['recommended_replicas']} replicas for 500 QPS @ 60ms latency")
+print(f"Estimated capacity: {plan['estimated_qps']:.0f} QPS")
+```
+
+**Scaling Guidelines**:
+
+| Tier | QPS per Replica | Latency | When to Use |
+|------|----------------|---------|-------------|
+| Basic | ~50 QPS | 100-200ms | Development, low traffic |
+| S1 | ~100 QPS | 60-120ms | Small-medium production |
+| S2 | ~200 QPS | 40-80ms | Medium-large production |
+| S3 | ~400 QPS | 30-60ms | Large production, low latency |
+
+**DON'T: Use partitions for query performance**
+
+```python
+# ❌ WRONG: Partitions don't help query latency
+# Partitions are for INDEX SIZE, not QUERY PERFORMANCE
+# Adding partitions may SLOW DOWN queries (scatter-gather)
+
+# ✅ RIGHT: Replicas improve query throughput
+# Each replica handles queries independently
+# 3 replicas = 3× query capacity
+```
+
+---
+
+### 9. Embedding Cache for Vector Search
+
+**DO: Cache query embeddings for common searches**
+
+```python
+# ✅ GOOD: Cache embeddings for frequently searched queries
+class EmbeddingCacheOptimized:
+    def __init__(self, openai_client, cache_size=5000):
+        self.openai_client = openai_client
+        self.cache = {}
+        self.cache_size = cache_size
+        self.hits = 0
+        self.misses = 0
+    
+    def get_embedding(self, text, model="text-embedding-3-large"):
+        cache_key = f"{text}:{model}"
+        
+        if cache_key in self.cache:
+            self.hits += 1
+            return self.cache[cache_key]
+        
+        # Generate embedding
+        self.misses += 1
+        response = self.openai_client.embeddings.create(input=text, model=model)
+        embedding = response.data[0].embedding
+        
+        # Cache with LRU eviction
+        if len(self.cache) >= self.cache_size:
+            # Remove oldest entry (FIFO for simplicity)
+            self.cache.pop(next(iter(self.cache)))
+        
+        self.cache[cache_key] = embedding
+        return embedding
+    
+    def get_savings(self, cost_per_1k_tokens=0.13, avg_tokens_per_query=10):
+        """Calculate cost savings from caching."""
+        total_calls = self.hits + self.misses
+        if total_calls == 0:
+            return {}
+        
+        hit_rate = self.hits / total_calls
+        
+        # Cost without caching
+        cost_without_cache = total_calls * (avg_tokens_per_query / 1000) * cost_per_1k_tokens
+        
+        # Cost with caching (only misses generate API calls)
+        cost_with_cache = self.misses * (avg_tokens_per_query / 1000) * cost_per_1k_tokens
+        
+        savings = cost_without_cache - cost_with_cache
+        
+        return {
+            'hit_rate': f"{hit_rate:.1%}",
+            'total_calls': total_calls,
+            'api_calls_saved': self.hits,
+            'cost_without_cache': f"${cost_without_cache:.2f}",
+            'cost_with_cache': f"${cost_with_cache:.2f}",
+            'savings': f"${savings:.2f}",
+            'savings_pct': f"{(savings/cost_without_cache*100):.0f}%" if cost_without_cache > 0 else "0%"
+        }
+```
+
+**Impact** (from Contoso case study):
+- Common queries: "Seattle", "2 bedroom", "under 500k" → cached
+- Hit rate: 58%
+- API calls saved: 29M/month
+- Cost savings: $3.77/month (small, but adds up at scale)
+- **Latency savings: 25-40ms** (more important than cost)
+
+**DON'T: Generate embeddings for every query without caching**
+
+At high scale, uncached embeddings become expensive:
+```
+Example: 50M queries/month
+- Embedding cost: 50M × 10 tokens × $0.13/1M = $65/month
+- With 60% cache hit rate: $26/month (savings: $39/month = $468/year)
+- Latency improvement: 60% of queries skip 30ms embedding call
+```
+
+---
+
+### 10. Query Result Caching Best Practices
+
+**DO: Implement cache warming for predictable queries**
+
+```python
+# ✅ GOOD: Pre-warm cache with common queries
+class CacheWarmer:
+    def __init__(self, search_client, cache):
+        self.search_client = search_client
+        self.cache = cache
+    
+    def warm_cache(self, common_queries):
+        """
+        Pre-populate cache with common queries.
+        
+        Run during off-peak hours or on app startup.
+        """
+        for query in common_queries:
+            # Execute search and cache result
+            results = list(self.search_client.search(search_text=query, top=10))
+            # Cache automatically stores it
+            self.cache.store(query, results)
+    
+    def get_common_queries_from_logs(self, log_file, top_n=1000):
+        """Extract top N queries from search logs."""
+        from collections import Counter
+        
+        queries = []
+        with open(log_file) as f:
+            for line in f:
+                # Parse query from log
+                query = self._extract_query(line)
+                queries.append(query)
+        
+        # Return top N most common
+        counter = Counter(queries)
+        return [q for q, count in counter.most_common(top_n)]
+
+# Usage: Warm cache on startup or scheduled job
+warmer = CacheWarmer(search_client, cache)
+common_queries = warmer.get_common_queries_from_logs("search_logs.txt", top_n=1000)
+warmer.warm_cache(common_queries)
+```
+
+**Benefits**:
+- First user doesn't experience cache miss
+- Predictable performance from startup
+- Higher effective hit rate (60% → 75%+)
+
+---
+
+## Troubleshooting
+
+### Issue 1: High Query Latency (P95 > 200ms)
+
+**Symptoms**:
+- Slow search responses, especially at peak load
+- P95/P99 latency significantly higher than P50
+- User complaints about "slow search"
+- High bounce rate on search pages
+
+**Diagnosis Steps**:
+
+1. **Check which percentile is slow**:
+```python
+# Measure latency distribution
+latencies = []
+for _ in range(100):
+    start = time.time()
+    results = search_client.search(search_text="laptop", top=10)
+    list(results)
+    latencies.append((time.time() - start) * 1000)
+
+latencies.sort()
+print(f"P50: {latencies[50]:.0f}ms")
+print(f"P95: {latencies[95]:.0f}ms")
+print(f"P99: {latencies[99]:.0f}ms")
+
+# If P95 >> P50: Inconsistent performance (cache misses, cold queries)
+# If P50 high: Systematic problem (all queries slow)
+```
+
+2. **Profile query components**:
+```python
+# Measure each component
+import time
+
+# Full query
+start = time.time()
+results = list(search_client.search(search_text="laptop", top=10))
+total_time = (time.time() - start) * 1000
+
+# Without select (all fields)
+start = time.time()
+results_all = list(search_client.search(search_text="laptop", top=10))
+all_fields_time = (time.time() - start) * 1000
+
+# With select (minimal fields)
+start = time.time()
+results_minimal = list(search_client.search(
+    search_text="laptop",
+    select="id,title",
+    top=10
+))
+minimal_fields_time = (time.time() - start) * 1000
+
+print(f"All fields: {all_fields_time:.0f}ms")
+print(f"Minimal fields: {minimal_fields_time:.0f}ms")
+print(f"Overhead from extra fields: {all_fields_time - minimal_fields_time:.0f}ms")
+```
+
+**Common Root Causes & Solutions**:
+
+**Cause 1: Fetching unnecessary fields**
+- Symptom: Large response payloads (>10KB per result)
+- Solution: Add `select` parameter with only needed fields
+- Impact: 2-7× faster, 40-60ms latency reduction
+
+**Cause 2: No caching**
+- Symptom: Every query hits search service (no cache hits)
+- Solution: Implement query result caching (5-minute TTL)
+- Impact: 60-80% queries served from cache, <10ms latency
+
+**Cause 3: Insufficient replicas**
+- Symptom: Latency increases at peak load (QPS spikes)
+- Solution: Add replicas (each replica adds ~100-400 QPS capacity)
+- Impact: Linear throughput increase, P95 latency reduction
+
+**Cause 4: Complex queries**
+- Symptom: Queries with many terms/wildcards are slow
+- Solution: Simplify query logic, avoid leading wildcards, limit terms
+- Impact: 2-5× faster for complex queries
+
+**Cause 5: Searching too many fields**
+- Symptom: Full-text search across 20+ fields
+- Solution: Use `search_fields` to limit to 3-5 relevant fields
+- Impact: 2-4× faster, more precise results
+
+**Step-by-Step Fix**:
+```python
+# 1. Add field selection (quick win)
+results = search_client.search(
+    search_text="laptop",
+    select="id,title,price,rating",  # ← Add this
+    top=10
+)
+
+# 2. Add caching (medium effort)
+cache = SearchCache(search_client)
+results = cache.search(search_text="laptop", top=10)
+
+# 3. Limit search scope (quick win)
+results = search_client.search(
+    search_text="laptop",
+    search_fields="title,description",  # ← Add this
+    select="id,title,price,rating",
+    top=10
+)
+
+# 4. If still slow, add replicas (requires Azure portal)
+# Go to Azure Portal → Scale → Add replicas (2→3→4)
+```
+
+---
+
+### Issue 2: Low Cache Hit Rate (<40%)
+
+**Symptoms**:
+- Cache hit rate below 40-50%
+- Most queries result in cache misses
+- Caching not providing expected latency improvement
+- High load on search service despite caching
+
+**Diagnosis**:
+
+```python
+# Check cache statistics
+stats = cache.get_cache_stats()
+print(f"Hit rate: {stats['hit_rate']:.1f}%")
+print(f"Hits: {stats['hits']}, Misses: {stats['misses']}")
+
+# Analyze query distribution
+from collections import Counter
+query_log = []  # Collect queries from logs
+query_counts = Counter(query_log)
+
+# Top 100 queries account for what % of traffic?
+top_100_count = sum(count for query, count in query_counts.most_common(100))
+total_count = sum(query_counts.values())
+concentration = top_100_count / total_count * 100
+
+print(f"Top 100 queries: {concentration:.0f}% of traffic")
+# If < 30%: Query distribution too diverse for simple caching
+# If > 60%: Should achieve >60% hit rate with proper caching
+```
+
+**Common Root Causes & Solutions**:
+
+**Cause 1: TTL too short**
+- Symptom: Cache entries expire before reuse
+- Current: 30-second TTL → entries expire quickly
+- Solution: Increase TTL to 5-10 minutes for stable data
+- Impact: Hit rate 35% → 65%
+
+**Cause 2: Cache key includes unnecessary parameters**
+- Symptom: Identical queries generate different cache keys
+```python
+# ❌ BAD: Different keys for same search
+cache_key_1 = hash("query=laptop&timestamp=1234567890&session_id=abc")
+cache_key_2 = hash("query=laptop&timestamp=1234567891&session_id=xyz")
+# These are the same search but different keys!
+
+# ✅ GOOD: Only include parameters that affect results
+cache_key = hash("query=laptop&top=10&filter=price le 1000")
+```
+- Solution: Normalize cache keys (exclude timestamp, session, etc.)
+- Impact: Hit rate 40% → 70%
+
+**Cause 3: Query distribution too diverse**
+- Symptom: Users searching many unique queries (long tail)
+- Example: 1M unique queries, each used once
+- Solution: Only cache top N (e.g., top 10,000) queries
+```python
+class SelectiveCache:
+    def __init__(self, popular_queries):
+        self.cache = {}
+        self.popular = set(popular_queries)  # Top 10K queries
+    
+    def search(self, query):
+        # Only cache popular queries
+        if query in self.popular:
+            return self.cached_search(query)
+        else:
+            return self.direct_search(query)
+```
+- Impact: Focus cache on queries that will be reused
+
+**Cause 4: Cache size too small**
+- Symptom: Cache evicts entries before they're reused (thrashing)
+- Current: 1,000 entry cache for 50,000 unique queries
+- Solution: Increase cache size to 10,000-50,000 entries
+```python
+# Calculate optimal cache size
+unique_queries_per_hour = 10000
+reuse_window_hours = 1
+cache_size = unique_queries_per_hour * reuse_window_hours
+# Size cache to hold all queries within reuse window
+```
+- Impact: Hit rate 45% → 62%
+
+**Step-by-Step Fix**:
+```python
+# 1. Analyze query distribution
+from collections import Counter
+queries = []  # Load from logs
+counter = Counter(queries)
+
+# Find top N that cover 80% of traffic
+sorted_queries = counter.most_common()
+cumulative = 0
+total = sum(counter.values())
+for i, (query, count) in enumerate(sorted_queries):
+    cumulative += count
+    if cumulative / total >= 0.8:
+        print(f"Top {i+1} queries cover 80% of traffic")
+        break
+
+# 2. Increase TTL for stable data
+cache = SearchCache(search_client)
+cache.l1_ttl = 300  # 5 minutes (was 60)
+cache.l2_ttl = 1800  # 30 minutes (was 300)
+
+# 3. Normalize cache keys
+def normalize_cache_key(params):
+    # Remove non-search parameters
+    search_params = {
+        k: v for k, v in params.items()
+        if k in ['search_text', 'filter', 'top', 'select', 'search_fields']
+    }
+    return hashlib.md5(json.dumps(search_params, sort_keys=True).encode()).hexdigest()
+
+# 4. Pre-warm cache with top queries
+warmer = CacheWarmer(search_client, cache)
+top_queries = [q for q, count in counter.most_common(1000)]
+warmer.warm_cache(top_queries)
+```
+
+---
+
+### Issue 3: Filter Queries Slow Despite Indexed Fields
+
+**Symptoms**:
+- Queries with filters take 200-500ms
+- Filter fields are marked `filterable: true` in schema
+- Simple equality filters (`eq`) are slow
+- Filtering seems slower than full-text search
+
+**Diagnosis**:
+
+```python
+# Test filter vs no-filter performance
+import time
+
+# No filter
+start = time.time()
+results_no_filter = list(search_client.search(search_text="laptop", top=10))
+no_filter_time = (time.time() - start) * 1000
+
+# With filter
+start = time.time()
+results_with_filter = list(search_client.search(
+    search_text="laptop",
+    filter="price le 1000",
+    top=10
+))
+filter_time = (time.time() - start) * 1000
+
+print(f"No filter: {no_filter_time:.0f}ms")
+print(f"With filter: {filter_time:.0f}ms")
+
+# Filter should be faster (reduces search scope) or similar
+# If filter is SLOWER: Problem!
+```
+
+**Common Root Causes & Solutions**:
+
+**Cause 1: Filter applied AFTER search instead of BEFORE**
+- Symptom: Filter adds latency instead of reducing it
+- Cause: Using `$filter` in wrong order or post-filtering
+```python
+# ❌ BAD: Post-filter (searches all, then filters)
+results = search_client.search(search_text="*", top=50000)
+filtered = [r for r in results if r['price'] <= 1000][:10]
+
+# ✅ GOOD: Pre-filter (filters first, then searches)
+results = search_client.search(
+    search_text="laptop",
+    filter="price le 1000",
+    top=10
+)
+```
+- Solution: Always use `filter` parameter in search query
+- Impact: 5-10× faster (85ms → 15ms)
+
+**Cause 2: Filter on non-indexed field**
+- Symptom: Slow filter despite `filterable: true`
+- Cause: Field index not built (check schema deployment)
+```python
+# Verify field is actually filterable
+index_def = search_index_client.get_index("products")
+price_field = next(f for f in index_def.fields if f.name == "price")
+print(f"Price filterable: {price_field.filterable}")  # Should be True
+
+# If False: Update schema and rebuild index
+price_field.filterable = True
+search_index_client.create_or_update_index(index_def)
+```
+- Solution: Rebuild index with correct schema
+- Impact: 100× faster (non-indexed → indexed)
+
+**Cause 3: Complex filter expression**
+- Symptom: Simple `eq` filters are fast, complex `and/or` are slow
+```python
+# Fast filter (simple)
+filter="category eq 'Laptops'"  # 20ms
+
+# Slow filter (complex)
+filter="(category eq 'Laptops' OR category eq 'Tablets') AND (price le 1000 OR rating ge 4.5) AND (inStock eq true OR backorder eq true)"  # 180ms
+```
+- Solution: Simplify filter or denormalize data
+```python
+# Denormalize: Add computed field "affordable_tech_in_stock"
+# Pre-compute: category in ['Laptops','Tablets'] AND (price <= 1000 OR rating >= 4.5) AND (inStock OR backorder)
+filter="affordable_tech_in_stock eq true"  # 25ms
+```
+- Impact: 5-8× faster for complex filters
+
+**Cause 4: Filter selectivity too low**
+- Symptom: Filter doesn't reduce search scope much
+```python
+# Check filter selectivity
+total_docs = 1000000
+filtered_docs = 950000  # Filter only excludes 5%!
+selectivity = filtered_docs / total_docs  # 0.95 (very poor)
+
+# Filter barely helps because 95% of docs pass filter
+```
+- Solution: Add more selective filter or remove ineffective filter
+```python
+# More selective filter
+filter="price le 500"  # Only 15% of docs (good selectivity)
+```
+- Impact: Better filters = 2-5× faster
+
+**Step-by-Step Fix**:
+```python
+# 1. Verify field schema
+index_def = search_index_client.get_index("products")
+for field in index_def.fields:
+    if field.name in ['price', 'category', 'inStock']:
+        print(f"{field.name}: filterable={field.filterable}, type={field.type}")
+
+# 2. Ensure filter is in query, not post-processing
+results = search_client.search(
+    search_text="laptop",
+    filter="price le 1000",  # ← In query
+    top=10
+)
+# NOT: results = [r for r in search_client.search(...) if r['price'] <= 1000]
+
+# 3. Simplify complex filters
+# Before: "((A AND B) OR (C AND D)) AND (E OR F)"
+# After: Pre-compute "qualifies = True" during indexing
+filter="qualifies eq true"
+
+# 4. Test filter selectivity
+def test_selectivity(filter_expr):
+    total = search_client.search(search_text="*", top=0, include_total_count=True).get_count()
+    filtered = search_client.search(search_text="*", filter=filter_expr, top=0, include_total_count=True).get_count()
+    selectivity = filtered / total
+    print(f"Selectivity: {selectivity:.1%} ({filtered:,} / {total:,})")
+    if selectivity > 0.7:
+        print("⚠️ WARNING: Filter not selective (>70% pass)")
+
+test_selectivity("price le 1000")
+```
+
+---
+
+### Issue 4: Pagination Slow for Deep Pages
+
+**Symptoms**:
+- First page (1-10) is fast: 50ms
+- Page 10 (90-100) is slow: 150ms
+- Page 50 (490-500) is very slow: 450ms
+- Page 100 (990-1000) times out: >2000ms
+
+**Diagnosis**:
+
+```python
+# Measure pagination latency at different depths
+def measure_pagination_depth(search_client, query, page_sizes=[1, 10, 50, 100]):
+    import time
+    
+    for page in page_sizes:
+        skip = (page - 1) * 10
+        start = time.time()
+        results = list(search_client.search(
+            search_text=query,
+            skip=skip,
+            top=10
+        ))
+        latency = (time.time() - start) * 1000
+        print(f"Page {page} (skip={skip}): {latency:.0f}ms")
+
+measure_pagination_depth(search_client, "laptop")
+# If latency increases linearly with skip: Offset-based pagination problem
+```
+
+**Root Cause**:
+- Azure Search must process and rank `skip + top` documents
+- Page 100 with `top=10`: Process 1000 docs, return last 10
+- Deep pagination inherently slow with offset method
+
+**Solutions**:
+
+**Solution 1: Use continuation tokens (BEST)**
+```python
+# ✅ GOOD: Constant time per page
+def paginate_efficient(search_client, query, pages_to_fetch=5):
+    results = search_client.search(search_text=query, top=10)
+    
+    page_num = 0
+    for page in results.by_page():
+        page_num += 1
+        documents = list(page)
+        print(f"Page {page_num}: {len(documents)} docs")
+        
+        if page_num >= pages_to_fetch:
+            break
+
+paginate_efficient(search_client, "laptop", pages_to_fetch=100)
+# All pages take ~50-60ms, regardless of depth
+```
+
+**Solution 2: Implement search_after (ALTERNATIVE)**
+```python
+# Use orderby with a unique field
+last_sort_value = None
+
+for page in range(1, 101):
+    results = search_client.search(
+        search_text="laptop",
+        order_by="id asc",  # Must sort by unique field
+        top=10,
+        search_after=last_sort_value  # Start after last result
+    )
+    
+    docs = list(results)
+    if docs:
+        last_sort_value = docs[-1]['id']
+    
+    print(f"Page {page}: {len(docs)} docs")
+```
+
+**Solution 3: Limit maximum page depth**
+```python
+# Prevent deep pagination entirely
+MAX_SKIP = 500  # Maximum 50 pages of 10 results
+
+def safe_paginate(search_client, query, page, page_size=10):
+    skip = (page - 1) * page_size
+    
+    if skip > MAX_SKIP:
+        return {
+            'error': 'Page too deep',
+            'message': 'Please refine your search',
+            'max_page': MAX_SKIP // page_size
+        }
+    
+    results = search_client.search(
+        search_text=query,
+        skip=skip,
+        top=page_size
+    )
+    
+    return list(results)
+```
+
+**Solution 4: Encourage query refinement**
+```python
+# Instead of deep pagination, suggest refinements
+if page > 10:
+    # Show facets/filters to narrow results
+    facets = ["category", "price,interval:100", "brand"]
+    
+    return {
+        'message': 'Too many results. Please refine your search:',
+        'suggestions': {
+            'categories': ['Laptops (12,453)', 'Tablets (3,221)', ...],
+            'price_ranges': ['$0-$500 (2,341)', '$500-$1000 (8,122)', ...],
+            'brands': ['Dell (3,211)', 'HP (2,876)', ...]
+        }
+    }
+```
+
+**Performance Comparison**:
+
+| Method | Page 1 | Page 10 | Page 50 | Page 100 | Notes |
+|--------|--------|---------|---------|----------|-------|
+| Offset (`skip`) | 50ms | 150ms | 450ms | 900ms | Linear degradation |
+| Continuation | 50ms | 52ms | 55ms | 58ms | ✅ Constant time |
+| Search After | 50ms | 53ms | 56ms | 60ms | ✅ Constant time |
+| Limit depth | 50ms | 150ms | N/A | N/A | Force refinement |
+
+**Recommended Approach**:
+1. **Default**: Use continuation tokens (best UX + performance)
+2. **Export/API**: Use search_after with stable sort field
+3. **UI/Web**: Limit to first 50 pages, show filters for refinement
+
+---
+
+### Issue 5: Embedding Generation Bottleneck for Vector Search
+
+**Symptoms**:
+- Vector search queries take 150-250ms
+- Embedding generation adds 25-40ms per query
+- High OpenAI API costs for embeddings
+- P95 latency spikes during embedding generation
+
+**Diagnosis**:
+
+```python
+# Measure embedding time vs search time
+import time
+
+# Total vector search time
+query_text = "laptop for machine learning"
+start = time.time()
+
+# 1. Generate embedding
+embedding_start = time.time()
+response = openai_client.embeddings.create(
+    input=query_text,
+    model="text-embedding-3-large"
+)
+embedding = response.data[0].embedding
+embedding_time = (time.time() - embedding_start) * 1000
+
+# 2. Vector search
+search_start = time.time()
+results = search_client.search(
+    vector_queries=[VectorQuery(vector=embedding, k=10, fields="contentVector")],
+    top=10
+)
+list(results)
+search_time = (time.time() - search_start) * 1000
+
+total_time = (time.time() - start) * 1000
+
+print(f"Embedding generation: {embedding_time:.0f}ms ({embedding_time/total_time*100:.0f}%)")
+print(f"Vector search: {search_time:.0f}ms ({search_time/total_time*100:.0f}%)")
+print(f"Total: {total_time:.0f}ms")
+
+# If embedding time > 20% of total: Optimize embeddings
+```
+
+**Common Root Causes & Solutions**:
+
+**Cause 1: No embedding cache**
+- Symptom: Every query generates new embedding (25-40ms overhead)
+- Solution: Cache embeddings for common queries
+```python
+class EmbeddingCache:
+    def __init__(self, openai_client, cache_size=5000):
+        self.client = openai_client
+        self.cache = {}
+        self.max_size = cache_size
+    
+    def get_embedding(self, text, model="text-embedding-3-large"):
+        key = f"{text}:{model}"
+        
+        if key in self.cache:
+            return self.cache[key]  # 0ms (cache hit)
+        
+        # Generate and cache
+        response = self.client.embeddings.create(input=text, model=model)
+        embedding = response.data[0].embedding
+        
+        # LRU eviction
+        if len(self.cache) >= self.max_size:
+            self.cache.pop(next(iter(self.cache)))
+        
+        self.cache[key] = embedding
+        return embedding
+
+# Usage
+cache = EmbeddingCache(openai_client)
+embedding = cache.get_embedding("laptop")  # 30ms first time
+embedding = cache.get_embedding("laptop")  # <1ms cached
+```
+- Impact: 50-70% hit rate → 15-20ms avg latency reduction
+
+**Cause 2: Using larger model than necessary**
+- Symptom: Embeddings take 35-45ms per call
+- Current: text-embedding-3-large (3072 dimensions)
+- Solution: Use smaller model for lower latency
+```python
+# Model comparison
+models = {
+    'text-embedding-3-small': {'dims': 512, 'latency': '15-20ms', 'quality': 'good'},
+    'text-embedding-3-large': {'dims': 3072, 'latency': '30-40ms', 'quality': 'best'},
+    'text-embedding-ada-002': {'dims': 1536, 'latency': '20-30ms', 'quality': 'very good'}
+}
+
+# For most use cases: text-embedding-ada-002 or text-embedding-3-small
+```
+- Impact: 30-40ms → 15-20ms (2× faster)
+- Trade-off: Slightly lower quality (test with your data)
+
+**Cause 3: Sequential embedding + search**
+- Symptom: Total time = embedding time + search time (additive)
+- Solution: Hybrid search (BM25 + vector in parallel)
+```python
+# If embedding fails or is slow, fall back to BM25
+import asyncio
+
+async def hybrid_search_with_fallback(query_text):
+    try:
+        # Try vector search (may be slow)
+        embedding_task = asyncio.create_task(generate_embedding_async(query_text))
+        
+        # Simultaneously start BM25 search
+        bm25_results = await search_bm25_async(query_text)
+        
+        # Wait for embedding (with timeout)
+        try:
+            embedding = await asyncio.wait_for(embedding_task, timeout=0.1)  # 100ms max
+            vector_results = await search_vector_async(embedding)
+            
+            # Fuse results
+            return fuse_results(bm25_results, vector_results)
+        except asyncio.TimeoutError:
+            # Embedding too slow - use BM25 only
+            return bm25_results
+    
+    except Exception:
+        # Embedding failed - fall back to BM25
+        return await search_bm25_async(query_text)
+```
+- Impact: Graceful degradation, no query failures
+
+**Cause 4: Network latency to OpenAI**
+- Symptom: Embedding calls take 40-60ms (high latency)
+- Cause: Network distance to OpenAI endpoint
+- Solution: Use Azure OpenAI in same region as search
+```python
+# Instead of OpenAI.com (US West)
+openai_client = OpenAI(api_key="...")  # Network RTT: 30-50ms from Europe
+
+# Use Azure OpenAI in same region as search
+from openai import AzureOpenAI
+openai_client = AzureOpenAI(
+    api_key="...",
+    api_version="2024-02-01",
+    azure_endpoint="https://your-resource.openai.azure.com"  # Same region: 5-10ms RTT
+)
+```
+- Impact: 40-60ms → 15-25ms latency
+
+**Step-by-Step Fix**:
+```python
+# 1. Implement embedding cache
+embedding_cache = EmbeddingCache(openai_client, cache_size=10000)
+
+# 2. Use appropriate model size
+embedding = embedding_cache.get_embedding(
+    text=query_text,
+    model="text-embedding-ada-002"  # Or text-embedding-3-small
+)
+
+# 3. Add fallback to BM25
+try:
+    embedding = embedding_cache.get_embedding(query_text)
+    results = vector_search(embedding)
+except Exception:
+    results = bm25_search(query_text)  # Fallback
+
+# 4. Pre-generate embeddings for common queries
+common_queries = ["laptop", "gaming pc", "affordable phone", ...]
+for query in common_queries:
+    embedding_cache.get_embedding(query)  # Pre-warm cache
+```
 
 ---
 
