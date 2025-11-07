@@ -1948,9 +1948,9 @@ flowchart TD
     
     U --> V{Metrics Meet Targets?}
     
-    V -->|Precision@5 < 0.8| W1[Optimize chunking]
-    V -->|NDCG@10 < 0.7| W2[Tune scoring profile]
-    V -->|Latency > 2s| W3[Optimize index/cache]
+    V -->|"Precision@5 < 0.8"| W1[Optimize chunking]
+    V -->|"NDCG@10 < 0.7"| W2[Tune scoring profile]
+    V -->|"Latency > 2s"| W3[Optimize index/cache]
     V -->|All targets met| X[A/B Testing]
     
     W1 --> U
