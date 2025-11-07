@@ -1,12 +1,56 @@
 # Azure OpenAI Integration
 
-Complete guide to integrating Azure OpenAI Service for embedding generation, semantic capabilities, and AI-powered search enhancements.
+**Purpose**: Complete guide to integrating Azure OpenAI Service for generating vector embeddings that power semantic search, enabling Azure AI Search to understand query intent beyond exact keyword matches.
+
+**Target Audience**: Python developers implementing vector search, data engineers preparing search data, search architects designing hybrid search systems.
+
+**Reading Time**: 45-50 minutes (comprehensive), 20 minutes (quick implementation)
+
+**Related Documents**:
+- Prerequisites: `04-azure-ai-search-setup.md` (Azure AI Search service setup)
+- Implementation: `09-vector-search.md` (Vector similarity search)
+- Advanced: `10-hybrid-search.md` (Combining BM25 + vector)
+
+---
+
+## Why Azure OpenAI Integration Matters
+
+**The problem with keyword-only search**: Traditional BM25 full-text search matches exact words and stems. User searches "best budget laptop" but your documents say "affordable computer for students" → **zero results** despite perfect semantic match.
+
+**The vector search solution**: Azure OpenAI embeddings convert text to 1,536-dimensional vectors (ada-002 model) that capture semantic meaning. Queries and documents with similar meaning cluster together in vector space, even with zero word overlap.
+
+**Real-world impact example**:
+
+```
+Scenario: Healthcare knowledge base (5M medical articles)
+
+Before (BM25 only):
+- Query: "heart attack symptoms"
+- Matches: Articles containing exact words "heart attack symptoms"
+- Miss: Articles about "myocardial infarction warning signs" (same condition, medical terminology)
+- Recall: 42%
+- User satisfaction: 3.1/5
+
+After (Hybrid BM25 + Vector):
+- Query: "heart attack symptoms" → embedded to vector
+- Matches: Articles semantically similar (medical terms, lay terms, symptom descriptions)
+- Finds: "myocardial infarction," "acute coronary syndrome," "chest pain indicators"
+- Recall: 89% (+47 percentage points)
+- User satisfaction: 4.6/5 (+1.5 points)
+- Cost: +$120/month (embedding generation), net revenue +$45K/year (reduced support calls)
+```
+
+**Three critical integration decisions**:
+1. **Embedding model choice**: ada-002 (1536-dim, $0.0001/1K tokens) vs. text-embedding-3-small (1536-dim, $0.00002/1K tokens, 5x cheaper) vs. text-embedding-3-large (3072-dim, $0.00013/1K tokens, highest quality)
+2. **Chunking strategy**: Whole documents (simple, loses context for long docs) vs. smart chunking (preserves context, more embeddings to generate)
+3. **Batch processing**: Sequential (simple, slow, expensive) vs. parallel batching (fast, complex error handling, cost-effective)
+
+---
 
 ## 📋 Table of Contents
-- [Overview](#overview)
-- [Service Setup](#service-setup)
-- [Document Parsing & Chunking](#document-parsing--chunking)
-- [Data Enrichment](#data-enrichment)
+- [Azure OpenAI Service Setup](#azure-openai-service-setup)
+- [Embedding Model Selection](#embedding-model-selection)
+- [Document Chunking Strategy](#document-chunking-strategy)
 - [Embedding Generation](#embedding-generation)
 - [Batch Processing](#batch-processing)
 - [Cost Optimization](#cost-optimization)
@@ -16,72 +60,55 @@ Complete guide to integrating Azure OpenAI Service for embedding generation, sem
 
 ---
 
-## Overview
+## Azure OpenAI Service Setup
 
-### Why Azure OpenAI for Search?
-
-Azure OpenAI provides powerful embedding models that enable:
-- **Semantic Search**: Understanding query intent beyond keywords
-- **Multilingual Support**: Cross-language search capabilities
-- **Contextual Understanding**: Capturing document meaning and relationships
-- **Similarity Matching**: Finding conceptually related content
-
-### Architecture Overview
-
-```
-┌─────────────────┐
-│  User Query     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│  Azure OpenAI Service   │
-│  (Embedding Generation) │
-└────────┬────────────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│  Azure AI Search        │
-│  (Vector Search)        │
-└────────┬────────────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Search Results │
-└─────────────────┘
-```
-
----
-
-## Service Setup
+**Prerequisites before starting**:
+- ✅ Azure subscription with Azure OpenAI access approved (apply at https://aka.ms/oai/access if pending)
+- ✅ Azure AI Search service created (see `04-azure-ai-search-setup.md`)
+- ✅ Azure CLI installed and authenticated (`az login`)
+- ✅ Python 3.8+ with `openai` SDK installed (`pip install openai`)
 
 ### Step 1: Create Azure OpenAI Resource
 
-#### Using Azure Portal
+**Region selection considerations**:
+- **Quota availability**: Not all regions have capacity for all models
+  - Check current availability: https://learn.microsoft.com/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability
+  - Recommended regions (as of 2024): East US, Sweden Central, Switzerland North (high quota, latest models)
+  - Avoid: Regions with frequent capacity constraints (check Azure status page)
+- **Latency optimization**: Choose region closest to Azure AI Search service
+  - Same region as Search service: <10ms latency (ideal for real-time embedding)
+  - Cross-region (same continent): 20-50ms latency (acceptable for batch processing)
+  - Cross-continent: 100-200ms latency (only for batch, not real-time)
+- **Data residency**: GDPR, compliance requirements may mandate specific regions
 
-1. Navigate to Azure Portal
-2. Create a resource → Search "Azure OpenAI"
-3. Configure:
-   - **Resource Group**: Same as your search service
-   - **Region**: `East US`, `West Europe`, or `South Central US`
-   - **Name**: `openai-search-embeddings-prod`
-   - **Pricing Tier**: Standard S0
-
-#### Using Azure CLI
+**Create Azure OpenAI resource** (CLI method, recommended for automation):
 
 ```bash
-# Variables
-RESOURCE_GROUP="rg-search-evaluation"
-LOCATION="eastus"
-OPENAI_NAME="openai-search-prod"
+# ============================================
+# Azure OpenAI Resource Creation Script
+# ============================================
 
-# Create OpenAI resource
+# Configuration
+RESOURCE_GROUP="rg-search-evaluation"
+LOCATION="eastus"  # Or swedencentral, switzerlandnorth for better quota
+OPENAI_NAME="openai-search-embeddings-prod"
+SKU="S0"  # Standard tier (only option)
+
+# Create resource group if not exists
+az group create \
+  --name $RESOURCE_GROUP \
+  --location $LOCATION
+
+# Create Azure OpenAI resource
+echo "Creating Azure OpenAI resource: $OPENAI_NAME"
 az cognitiveservices account create \
   --name $OPENAI_NAME \
   --resource-group $RESOURCE_GROUP \
   --location $LOCATION \
   --kind OpenAI \
-  --sku S0 \
+  --sku $SKU \
+  --custom-domain $OPENAI_NAME \
+  --tags Environment=Production Project=SearchEvaluation \
   --yes
 
 # Get endpoint and key
@@ -97,32 +124,187 @@ OPENAI_KEY=$(az cognitiveservices account keys list \
   --query key1 \
   --output tsv)
 
+# Save to .env file
+cat >> .env << EOF
+AZURE_OPENAI_ENDPOINT="$OPENAI_ENDPOINT"
+AZURE_OPENAI_API_KEY="$OPENAI_KEY"
+EOF
+
+echo "✅ Azure OpenAI resource created successfully"
 echo "Endpoint: $OPENAI_ENDPOINT"
-echo "Key: $OPENAI_KEY"
+echo "Key saved to .env file"
 ```
+
+**Portal creation** (for first-time users preferring UI):
+1. Azure Portal → Create a resource → Search "Azure OpenAI"
+2. Basics tab:
+   - Subscription: Choose your subscription
+   - Resource group: `rg-search-evaluation` (same as Search service)
+   - Region: `East US` (or region with quota availability)
+   - Name: `openai-search-embeddings-prod` (globally unique)
+   - Pricing tier: **Standard S0** (only option, pay-per-use)
+3. Networking tab: Public endpoint (default) or private endpoint (for production security)
+4. Tags tab: Add `Environment=Production`, `Project=SearchEvaluation` for cost tracking
+5. Review + create → Wait 2-3 minutes for deployment
+6. Go to resource → Keys and Endpoint → Copy Key 1 and Endpoint → Save to .env file
 
 ### Step 2: Deploy Embedding Model
 
+**Why deployment is required**: Unlike other APIs, Azure OpenAI requires explicit model deployment before use. This allocates compute capacity (Tokens Per Minute quota) for your use case.
+
+**Deployment creates**:
+- **Model instance**: Dedicated capacity for your workload
+- **TPM quota**: Tokens Per Minute throughput (120K TPM = ~120 API calls/minute for 1K token inputs)
+- **Endpoint**: Deployment-specific name you'll reference in code
+
+**Embedding model comparison** (choose based on requirements):
+
+| Model | Dimensions | Cost per 1K tokens | Speed | Quality | Best For |
+|-------|------------|-------------------|-------|---------|----------|
+| **text-embedding-ada-002** | 1,536 | $0.0001 | Fast | Good | Legacy (still widely used) |
+| **text-embedding-3-small** | 1,536 | $0.00002 | Fastest | Good | **Cost-sensitive production** (5x cheaper than ada-002) |
+| **text-embedding-3-large** | 3,072 | $0.00013 | Slower | **Best** | Quality-critical applications, multilingual |
+
+**Recommendation for most use cases**: **text-embedding-3-small**
+- 5x cheaper than ada-002 ($0.10 per 1M tokens vs. $0.50)
+- Comparable quality for English text
+- Same 1,536 dimensions (compatible with existing indexes)
+- Faster inference (lower latency)
+
+**When to use text-embedding-3-large**:
+- Multilingual search (superior non-English quality)
+- Domain-specific content requiring nuanced understanding
+- Budget allows for quality investment (30% more expensive than ada-002, but significantly better)
+
+**Deploy embedding model via CLI**:
+
 ```bash
-# Deploy text-embedding-ada-002
+# ============================================
+# Deploy Embedding Model - Complete Script
+# ============================================
+
+OPENAI_NAME="openai-search-embeddings-prod"
+RESOURCE_GROUP="rg-search-evaluation"
+DEPLOYMENT_NAME="text-embedding-3-small"  # Or ada-002, 3-large
+MODEL_NAME="text-embedding-3-small"
+MODEL_VERSION="1"  # Check latest version in Azure Portal
+TPM_CAPACITY=120  # Tokens Per Minute (K) - Start with 120K, scale as needed
+
+# Deploy model
+echo "Deploying embedding model: $MODEL_NAME"
 az cognitiveservices account deployment create \
   --name $OPENAI_NAME \
   --resource-group $RESOURCE_GROUP \
-  --deployment-name text-embedding-ada-002 \
-  --model-name text-embedding-ada-002 \
-  --model-version "2" \
+  --deployment-name $DEPLOYMENT_NAME \
+  --model-name $MODEL_NAME \
+  --model-version $MODEL_VERSION \
   --model-format OpenAI \
-  --sku-capacity 120 \
+  --sku-capacity $TPM_CAPACITY \
   --sku-name "Standard"
 
 # Verify deployment
-az cognitiveservices account deployment list \
+echo "Verifying deployment..."
+az cognitiveservices account deployment show \
   --name $OPENAI_NAME \
   --resource-group $RESOURCE_GROUP \
+  --deployment-name $DEPLOYMENT_NAME \
   --output table
+
+echo "✅ Model deployed successfully"
+echo "Deployment name: $DEPLOYMENT_NAME"
+echo "TPM Capacity: ${TPM_CAPACITY}K tokens/minute"
 ```
 
-### Step 3: Configure Access
+**Deploy via Azure Portal**:
+1. Go to Azure OpenAI resource → Deployments (under Resource Management)
+2. Click **"+ Create new deployment"**
+3. Configure:
+   - **Model**: `text-embedding-3-small` (recommended) or `text-embedding-ada-002` or `text-embedding-3-large`
+   - **Deployment name**: `text-embedding-3-small` (use same name as model for simplicity)
+   - **Model version**: `1` (or latest available)
+   - **Deployment type**: Standard
+   - **Tokens per Minute Rate Limit (thousands)**: `120` (start conservative, scale up)
+     * 120K TPM ≈ 120 concurrent embedding calls/minute (assuming 1K tokens per document)
+     * 240K TPM ≈ 240 concurrent calls (double capacity)
+     * Monitor usage in Metrics, increase if hitting rate limits
+4. Click **Create**
+5. Wait ~30 seconds for deployment to complete
+6. Test deployment with sample code (next section)
+
+**TPM capacity planning**:
+
+```python
+def estimate_tpm_needed(requirements):
+    """
+    Estimate Tokens Per Minute (TPM) capacity needed for embedding workload
+    """
+    # Extract requirements
+    docs_to_embed = requirements.get('document_count', 100000)
+    avg_doc_tokens = requirements.get('avg_document_tokens', 500)
+    embedding_window_hours = requirements.get('embedding_window_hours', 24)
+    
+    # Calculate total tokens
+    total_tokens = docs_to_embed * avg_doc_tokens
+    
+    # Calculate tokens per minute (spread across embedding window)
+    minutes_available = embedding_window_hours * 60
+    tokens_per_minute = total_tokens / minutes_available
+    
+    # Add 50% buffer for retries, overhead, concurrent requests
+    tokens_per_minute_buffered = tokens_per_minute * 1.5
+    
+    # Convert to thousands (Azure quota is in K)
+    tpm_needed_k = int(tokens_per_minute_buffered / 1000) + 1
+    
+    # Round to common quota increments (120K, 240K, 360K, etc.)
+    quota_increments = [120, 240, 360, 480, 600, 720, 1000, 1500, 2000]
+    recommended_quota = next((q for q in quota_increments if q >= tpm_needed_k), tpm_needed_k)
+    
+    # Calculate embedding time
+    embedding_time_hours = (total_tokens / (recommended_quota * 1000)) / 60
+    
+    # Cost estimation (text-embedding-3-small pricing: $0.00002 per 1K tokens)
+    cost_per_1k_tokens = 0.00002
+    total_cost = (total_tokens / 1000) * cost_per_1k_tokens
+    
+    return {
+        'total_tokens': f"{total_tokens:,}",
+        'tpm_needed': f"{tpm_needed_k}K",
+        'recommended_quota': f"{recommended_quota}K",
+        'estimated_time_hours': f"{embedding_time_hours:.1f}",
+        'estimated_cost': f"${total_cost:.2f}",
+        'model': 'text-embedding-3-small'
+    }
+
+# Example: 100K documents, 500 tokens each, embed in 24 hours
+initial_index = {
+    'document_count': 100000,
+    'avg_document_tokens': 500,
+    'embedding_window_hours': 24
+}
+
+estimate = estimate_tpm_needed(initial_index)
+print("Embedding Capacity Estimate:")
+print(f"  Total tokens: {estimate['total_tokens']}")
+print(f"  TPM needed: {estimate['tpm_needed']}")
+print(f"  Recommended quota: {estimate['recommended_quota']}")
+print(f"  Embedding time: {estimate['estimated_time_hours']} hours")
+print(f"  Estimated cost: {estimate['estimated_cost']}")
+```
+
+**Output example**:
+```
+Embedding Capacity Estimate:
+  Total tokens: 50,000,000
+  TPM needed: 52K
+  Recommended quota: 120K
+  Embedding time: 6.9 hours
+  Estimated cost: $1.00
+```
+
+### Step 3: Test Connection and Embedding
+
+**Complete test script** (validates deployment, generates sample embedding):
 
 ```python
 import os
@@ -135,117 +317,96 @@ load_dotenv()
 # Initialize Azure OpenAI client
 client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version="2024-02-01",
+    api_version="2024-02-01",  # Check latest API version
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
 )
 
-# Test connection
 def test_openai_connection():
-    """Test Azure OpenAI connection."""
+    """
+    Test Azure OpenAI connection and embedding generation
+    Returns: True if successful, False otherwise
+    """
+    deployment_name = "text-embedding-3-small"  # Must match your deployment name
+    
     try:
+        print("Testing Azure OpenAI connection...")
+        
+        # Generate embedding for test text
         response = client.embeddings.create(
-            input="Test connection",
-            model="text-embedding-ada-002"
+            input="Azure AI Search with vector embeddings enables semantic search",
+            model=deployment_name
         )
+        
+        # Extract embedding
+        embedding = response.data[0].embedding
+        
+        # Validate
         print("✅ Azure OpenAI connection successful")
-        print(f"Embedding dimensions: {len(response.data[0].embedding)}")
+        print(f"   Deployment: {deployment_name}")
+        print(f"   Embedding dimensions: {len(embedding)}")
+        print(f"   First 5 values: {embedding[:5]}")
+        print(f"   Token usage: {response.usage.total_tokens} tokens")
+        
+        # Verify dimensions match expected model
+        expected_dims = {
+            'text-embedding-ada-002': 1536,
+            'text-embedding-3-small': 1536,
+            'text-embedding-3-large': 3072
+        }
+        
+        expected = expected_dims.get(deployment_name, 1536)
+        if len(embedding) != expected:
+            print(f"⚠️  Warning: Expected {expected} dimensions, got {len(embedding)}")
+            print("   Check deployment model matches deployment_name variable")
+        
         return True
+        
     except Exception as e:
-        print(f"❌ Connection failed: {e}")
+        print(f"❌ Connection failed: {str(e)}")
+        print("\nTroubleshooting steps:")
+        print("1. Verify AZURE_OPENAI_ENDPOINT in .env (format: https://YOUR-RESOURCE.openai.azure.com/)")
+        print("2. Verify AZURE_OPENAI_API_KEY in .env")
+        print("3. Verify deployment name matches exactly (case-sensitive)")
+        print(f"4. Check deployment exists: az cognitiveservices account deployment list --name YOUR-RESOURCE --resource-group YOUR-RG")
         return False
 
-test_openai_connection()
+if __name__ == "__main__":
+    success = test_openai_connection()
+    exit(0 if success else 1)
+```
+
+**Expected output**:
+```
+Testing Azure OpenAI connection...
+✅ Azure OpenAI connection successful
+   Deployment: text-embedding-3-small
+   Embedding dimensions: 1536
+   First 5 values: [0.0123, -0.0456, 0.0789, -0.0234, 0.0567]
+   Token usage: 12 tokens
+```
+
+**Common connection errors**:
+```
+Error: "DeploymentNotFound: The API deployment for this resource does not exist"
+Fix: Check deployment name spelling (case-sensitive)
+     Run: az cognitiveservices account deployment list --name YOUR-RESOURCE --resource-group YOUR-RG
+
+Error: "InvalidRequestError: The API deployment is not yet available"
+Fix: Wait 30-60 seconds after creating deployment (deployment provisioning delay)
+
+Error: "RateLimitError: Requests to the Embeddings API have exceeded call rate limit"
+Fix: Reduce concurrent requests, or increase TPM quota in deployment settings
+
+Error: "AuthenticationError: Incorrect API key provided"
+Fix: Regenerate key in Azure Portal → Keys and Endpoint
+     Update AZURE_OPENAI_API_KEY in .env file
 ```
 
 ---
 
-## Document Parsing & Chunking
+## Embedding Model Selection
 
-### Overview: PDF Processing Pipeline
-
-For PDF documents with complex structure (tables, headers, lists), chunking must respect document layout to maintain context and searchability.
-
-```
-PDF → Azure AI Document Intelligence → Layout Analysis → Smart Chunking → Embeddings → Index
-```
-
-### Azure AI Document Intelligence Integration
-
-```python
-from azure.ai.formrecognizer import DocumentAnalysisClient
-from azure.core.credentials import AzureKeyCredential
-from dataclasses import dataclass
-from typing import List, Optional
-from enum import Enum
-
-class ChunkType(Enum):
-    """Types of document chunks."""
-    PARAGRAPH = "paragraph"
-    TABLE = "table"
-    HEADER = "header"
-    LIST = "list"
-    FOOTER = "footer"
-
-@dataclass
-class DocumentChunk:
-    """A chunk of document content with metadata."""
-    chunk_id: str
-    content: str
-    chunk_type: ChunkType
-    page_number: int
-    bounding_box: Optional[dict]
-    parent_section: Optional[str]
-    char_count: int
-    token_estimate: int
-    
-    def to_search_document(self, doc_id: str, chunk_index: int) -> dict:
-        """Convert to Azure AI Search document."""
-        return {
-            "id": f"{doc_id}_{chunk_index}",
-            "document_id": doc_id,
-            "chunk_id": self.chunk_id,
-            "content": self.content,
-            "chunk_type": self.chunk_type.value,
-            "page_number": self.page_number,
-            "parent_section": self.parent_section,
-            "char_count": self.char_count,
-            "token_estimate": self.token_estimate
-        }
-
-class PDFDocumentParser:
-    """Parse PDF documents using Azure AI Document Intelligence."""
-    
-    def __init__(self, endpoint: str, api_key: str):
-        self.client = DocumentAnalysisClient(
-            endpoint=endpoint,
-            credential=AzureKeyCredential(api_key)
-        )
-        
-    def parse_pdf(self, pdf_path: str, model: str = "prebuilt-layout") -> dict:
-        """
-        Parse PDF with layout analysis.
-        
-        Args:
-            pdf_path: Path to PDF file
-            model: "prebuilt-layout", "prebuilt-read", or "prebuilt-document"
-            
-        Returns:
-            Parsed document structure
-        """
-        with open(pdf_path, "rb") as f:
-            poller = self.client.begin_analyze_document(
-                model_id=model,
-                document=f
-            )
-        
-        result = poller.result()
-        
-        return {
-            "content": result.content,
-            "pages": self._extract_pages(result.pages),
-            "paragraphs": self._extract_paragraphs(result.paragraphs),
-            "tables": self._extract_tables(result.tables),
-            "sections": self._extract_sections(result)
+**Decision framework for choosing embedding model**:
         }
     
     def _extract_pages(self, pages) -> List[dict]:
