@@ -175,12 +175,12 @@ flowchart TD
     DOCINT --> D1[Parse: layout, tables, hierarchy]
     D1 --> INDEX[Index in Azure AI Search]
     
-    style START fill:#e1f5ff,stroke:#333,stroke-width:2px
-    style LANGUAGE fill:#FFD700,stroke:#333,stroke-width:2px
-    style OPENAI fill:#FFD700,stroke:#333,stroke-width:2px
-    style EMBED fill:#90EE90,stroke:#333,stroke-width:2px
-    style DOCINT fill:#FFB6C1,stroke:#333,stroke-width:2px
-    style INDEX fill:#98FB98,stroke:#333,stroke-width:3px
+    style START fill:#e1f5ff,stroke:#333,stroke-width:2px,color:#000
+    style LANGUAGE fill:#FFD700,stroke:#333,stroke-width:2px,color:#000
+    style OPENAI fill:#FFD700,stroke:#333,stroke-width:2px,color:#000
+    style EMBED fill:#90EE90,stroke:#333,stroke-width:2px,color:#000
+    style DOCINT fill:#FFB6C1,stroke:#333,stroke-width:2px,color:#000
+    style INDEX fill:#98FB98,stroke:#333,stroke-width:3px,color:#000
 ```
 
 ---
@@ -251,13 +251,13 @@ flowchart LR
     EMB --> STORE
     EMB --> INDEX
     
-    style Input fill:#e1f5ff,stroke:#333,stroke-width:2px
-    style Stage1 fill:#FFB6C1,stroke:#333,stroke-width:2px
-    style Stage2 fill:#FFD700,stroke:#333,stroke-width:2px
-    style Stage3 fill:#FFD700,stroke:#333,stroke-width:2px
-    style Stage4 fill:#DDA0DD,stroke:#333,stroke-width:2px
-    style Stage5 fill:#90EE90,stroke:#333,stroke-width:2px
-    style Output fill:#98FB98,stroke:#333,stroke-width:3px
+    style Input fill:#e1f5ff,stroke:#333,stroke-width:2px,color:#000
+    style Stage1 fill:#FFB6C1,stroke:#333,stroke-width:2px,color:#000
+    style Stage2 fill:#FFD700,stroke:#333,stroke-width:2px,color:#000
+    style Stage3 fill:#FFD700,stroke:#333,stroke-width:2px,color:#000
+    style Stage4 fill:#DDA0DD,stroke:#333,stroke-width:2px,color:#000
+    style Stage5 fill:#90EE90,stroke:#333,stroke-width:2px,color:#000
+    style Output fill:#98FB98,stroke:#333,stroke-width:3px,color:#000
 ```
 
 ### 4.2 Processing Estimates (Freddie Mac Example)
